@@ -1,1 +1,1 @@
-https://romahalaichuk.github.io/VizMas/
+https://romahalaichuk.github.io/Vis/
