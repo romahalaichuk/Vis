@@ -1,5 +1,10 @@
 document
 	.getElementById("download-button")
 	.addEventListener("click", function () {
-		alert("Pobieranie wizytówki. Skontaktuj się z Janem Kowalskim.");
+		var a = document.createElement("a");
+		a.href = "https://romahalaichuk.github.io/Vis/index.html";
+		a.download = "visit.html";
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
 	});
