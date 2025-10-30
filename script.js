@@ -3,7 +3,7 @@ document
 	.addEventListener("click", function () {
 		var a = document.createElement("a");
 		a.href = "https://romahalaichuk.github.io/Vis/index.html";
-		a.download = "visit.html";
+		a.download = "index.html";
 		document.body.appendChild(a);
 		a.click();
 		document.body.removeChild(a);
