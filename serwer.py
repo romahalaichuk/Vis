@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, jsonify, request, session, redirect
+from flask import Flask, render_template_string, jsonify, request
 from flask_socketio import SocketIO, emit
 import sqlite3
 import socket
@@ -7,6 +7,12 @@ import webbrowser
 import qrcode
 import io
 import base64
+
+from kloc import (
+    init_sala_db, dodaj_stolik, dodaj_krzeslo, pobierz_sale,
+    przesun_stolik, przesun_krzeslo, usun_stolik, usun_krzeslo,
+    dodaj_zamowienie_krzeslo, pobierz_zamowienia_krzesla
+)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'tajny-klucz-restauracji-2024'
@@ -28,35 +34,21 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # Usuń stare tabele jeśli mają złą strukturę
-    c.execute("DROP TABLE IF EXISTS stoliki")
     c.execute("DROP TABLE IF EXISTS menu")
     c.execute("DROP TABLE IF EXISTS kelnerzy")
     
-    # Stoliki - struktura zaczyna się od podstawowych pól, reszta dynamicznie
-    c.execute('''CREATE TABLE IF NOT EXISTS stoliki 
-                 (id INTEGER PRIMARY KEY, numer INTEGER UNIQUE)''')
-    
-    # Menu (dynamiczne)
-    c.execute('''CREATE TABLE IF NOT EXISTS menu 
-                 (id INTEGER PRIMARY KEY, nazwa TEXT, ilosc INTEGER DEFAULT 0, kolor TEXT)''')
-    
-    # Kelnerzy
-    c.execute('''CREATE TABLE IF NOT EXISTS kelnerzy 
-                 (id INTEGER PRIMARY KEY, imie TEXT, aktywny INTEGER DEFAULT 1)''')
-    
-    # Inicjalizacja stolików
-    for i in range(1, 11):
-        c.execute("INSERT OR IGNORE INTO stoliki (numer) VALUES (?)", (i,))
+    c.execute('''CREATE TABLE menu (id INTEGER PRIMARY KEY, nazwa TEXT, ilosc INTEGER DEFAULT 0, kolor TEXT)''')
+    c.execute('''CREATE TABLE kelnerzy (id INTEGER PRIMARY KEY, imie TEXT, aktywny INTEGER DEFAULT 1)''')
     
     # Przykładowe dania
-    c.execute("SELECT COUNT(*) FROM menu")
-    if c.fetchone()[0] == 0:
-        c.execute("INSERT INTO menu (nazwa, ilosc, kolor) VALUES ('Łosoś', 20, '#ff6b6b')")
-        c.execute("INSERT INTO menu (nazwa, ilosc, kolor) VALUES ('Makaron', 20, '#4ecdc4')")
+    c.execute("INSERT INTO menu (nazwa, ilosc, kolor) VALUES ('Łosoś', 20, '#ff6b6b')")
+    c.execute("INSERT INTO menu (nazwa, ilosc, kolor) VALUES ('Makaron', 20, '#4ecdc4')")
+    c.execute("INSERT INTO menu (nazwa, ilosc, kolor) VALUES ('Pizza', 15, '#ffa500')")
+    c.execute("INSERT INTO menu (nazwa, ilosc, kolor) VALUES ('Sałatka', 25, '#90ee90')")
     
     conn.commit()
     conn.close()
+    init_sala_db()
 
 def get_menu():
     conn = sqlite3.connect(DB_PATH)
@@ -65,42 +57,17 @@ def get_menu():
     conn.close()
     return [{'id': d[0], 'nazwa': d[1], 'ilosc': d[2], 'kolor': d[3]} for d in dania]
 
-def get_stan():
+def get_kelnerzy():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
-    # Pobierz wszystkie kolumny tabeli stoliki
-    c.execute("PRAGMA table_info(stoliki)")
-    kolumny = [row[1] for row in c.fetchall()]
-    
-    # Pobierz dane stolików
-    c.execute("SELECT * FROM stoliki")
-    wiersze = c.fetchall()
-    
-    stoliki = []
-    for wiersz in wiersze:
-        stolik_dict = {}
-        for i, kolumna in enumerate(kolumny):
-            stolik_dict[kolumna] = wiersz[i]
-        stoliki.append(stolik_dict)
-    
-    menu = c.execute("SELECT id, nazwa, ilosc, kolor FROM menu").fetchall()
     kelnerzy = c.execute("SELECT imie FROM kelnerzy WHERE aktywny=1").fetchall()
-    
     conn.close()
-    
-    return {
-        'stoliki': stoliki,
-        'menu': [{'id': m[0], 'nazwa': m[1], 'ilosc': m[2], 'kolor': m[3]} for m in menu],
-        'kelnerzy': [k[0] for k in kelnerzy]
-    }
+    return [k[0] for k in kelnerzy]
 
 def generuj_qr(url):
-    """Generuj QR kod jako base64 obrazek"""
     qr = qrcode.QRCode(version=1, box_size=10, border=2)
     qr.add_data(url)
     qr.make(fit=True)
-    
     img = qr.make_image(fill_color="black", back_color="white")
     buffered = io.BytesIO()
     img.save(buffered, format="PNG")
@@ -109,10 +76,9 @@ def generuj_qr(url):
 
 @app.route('/')
 def index():
-    stan = get_stan()
+    stan = {'menu': get_menu(), 'kelnerzy': get_kelnerzy()}
     ip = get_ip()
-    port = 5000
-    url = f"http://{ip}:{port}/kelner"
+    url = f"http://{ip}:5000/kelner"
     qr_kod = generuj_qr(url)
     
     return render_template_string('''
@@ -130,6 +96,7 @@ def index():
             background: #1a1a2e;
             color: #eee;
             padding: 20px;
+            min-height: 100vh;
         }
         .header {
             display: flex;
@@ -183,7 +150,7 @@ def index():
         
         .grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 350px 1fr;
             gap: 20px;
         }
         @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
@@ -230,15 +197,16 @@ def index():
         .btn-dodaj { background: #4ecdc4; color: white; }
         .btn-odejmij { background: #ff6b6b; color: white; }
         .btn-usun { background: #666; color: white; }
-        .btn-edytuj { background: #ffa500; color: white; }
         
         .nowe-danie {
             display: flex;
             gap: 10px;
             margin-top: 15px;
+            flex-wrap: wrap;
         }
         .nowe-danie input {
             flex: 1;
+            min-width: 100px;
             padding: 10px;
             border-radius: 5px;
             border: none;
@@ -246,7 +214,7 @@ def index():
             color: white;
         }
         
-       .kelner-lista {
+        .kelner-lista {
             display: flex;
             flex-direction: column;
             align-items: flex-start;
@@ -261,26 +229,153 @@ def index():
             font-weight: bold;
         }
         
-        .stolik-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 15px;
+        /* PLANSZA */
+        .plansza-container {
+            background: #0f3460;
+            border-radius: 15px;
+            padding: 20px;
+            position: relative;
+            overflow: auto;
+            min-height: 500px;
         }
-        .stolik {
+        .plansza {
+            width: 800px;
+            height: 600px;
+            background: 
+                linear-gradient(rgba(78, 205, 196, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(78, 205, 196, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+            background-color: #1a1a2e;
+            border: 2px solid #e94560;
+            position: relative;
+            margin: 0 auto;
+        }
+        
+        /* Stolik na planszy */
+        .stolik-obiekt {
+            position: absolute;
+            border: 3px solid white;
+            border-radius: 8px;
+            cursor: move;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            font-size: 12px;
+            user-select: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .stolik-obiekt:hover {
+            box-shadow: 0 0 20px rgba(78, 205, 196, 0.8);
+        }
+        .stolik-obiekt .obrot {
+            position: absolute;
+            width: 55px;
+            height: 55px;
+            background: #ffa500;
+            border-radius: 50%;
+            cursor: grab;
+            display: none;
+        }
+        .stolik-obiekt:hover .obrot { display: block; }
+        .stolik-obiekt .usun {
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            width: 20px;
+            height: 20px;
+            background: #ff6b6b;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+        .stolik-obiekt:hover .usun { display: flex; }
+        
+        /* Krzesło na planszy */
+        .krzeslo-obiekt {
+            position: absolute;
+            width: 35px;
+            height: 35px;
+            border: 2px solid white;
+            border-radius: 50%;
+            cursor: move;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            user-select: none;
+            transition: transform 0.2s;
+        }
+        .krzeslo-obiekt:hover { transform: scale(1.2); z-index: 100; }
+        .krzeslo-obiekt.ma-zamowienie {
+            animation: pulse 1.5s infinite;
+            border-color: #ff6b6b;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 5px currentColor; }
+            50% { box-shadow: 0 0 20px currentColor; }
+        }
+        .krzeslo-obiekt .usun {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 16px;
+            height: 16px;
+            background: #ff6b6b;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+        .krzeslo-obiekt:hover .usun { display: flex; }
+        
+        /* Tooltip zamówień */
+        .zamowienia-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            padding: 10px;
+            border-radius: 8px;
+            min-width: 150px;
+            display: none;
+            z-index: 1000;
+            border: 1px solid #4ecdc4;
+        }
+        .krzeslo-obiekt:hover .zamowienia-tooltip { display: block; }
+        .zamowienia-tooltip h5 { color: #4ecdc4; margin-bottom: 5px; font-size: 11px; }
+        .zamowienia-tooltip div { font-size: 10px; margin-bottom: 3px; }
+        
+        /* Panel dodawania */
+        .dodaj-panel {
             background: #0f3460;
             padding: 15px;
             border-radius: 10px;
-            border-left: 5px solid #e94560;
+            margin-bottom: 15px;
         }
-        .stolik-nr { font-size: 1.3rem; color: #e94560; margin-bottom: 10px; font-weight: bold; }
-        .zamowienie {
-            background: rgba(0,0,0,0.3);
-            padding: 10px;
+        .dodaj-panel h4 { color: #4ecdc4; margin-bottom: 10px; }
+        .dodaj-panel input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 8px;
             border-radius: 5px;
-            margin-bottom: 5px;
-            font-size: 0.9rem;
+            border: none;
+            background: #1a1a2e;
+            color: white;
         }
-        .zamowienie strong { color: #4ecdc4; }
+        .dodaj-panel .row {
+            display: flex;
+            gap: 8px;
+        }
+        .dodaj-panel .row input { flex: 1; }
     </style>
 </head>
 <body>
@@ -301,28 +396,50 @@ def index():
             <button onclick="zamknijQR()">Zamknij</button>
         </div>
     </div>
-    
-    <div id="menuModal" class="modal" onclick="zamknijMenuModal()">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <h2>🍳 Zarządzanie Daniami</h2>
-            <div id="menu-lista"></div>
-            <div class="nowe-danie">
-                <input type="text" id="noweNazwa" placeholder="Nazwa dania">
-                <input type="number" id="noweIlosc" placeholder="Ilość">
-                <input type="color" id="noweKolor" value="#ff6b6b">
-                <button class="btn btn-dodaj" onclick="dodajDanie()">+ Dodaj</button>
-            </div>
-            <button onclick="zamknijMenuModal()" style="margin-top: 15px;">Zamknij</button>
-        </div>
-    </div>
-    
+
     <div class="grid">
+        <!-- LEWA KOLUMNA -->
         <div>
+            <!-- Zarządzanie daniami -->
             <div class="panel">
-                <button class="btn btn-dodaj" onclick="otworzMenuModal()">
-                    🍳 Zarządzanie Daniami
-                </button>
+                <h2>🍳 Zarządzanie Daniami</h2>
+                <div id="menu-lista"></div>
+                <div class="nowe-danie">
+                    <input type="text" id="noweNazwa" placeholder="Nazwa dania">
+                    <input type="number" id="noweIlosc" placeholder="Ilość" style="width:80px;">
+                    <input type="color" id="noweKolor" value="#ff6b6b" style="width:50px;">
+                    <button class="btn btn-dodaj" onclick="dodajDanie()">+</button>
+                </div>
             </div>
+            
+            <!-- Dodawanie stolików i krzeseł -->
+            <div class="panel">
+                <h2>🪑 Dodaj do planszy</h2>
+                
+                <div class="dodaj-panel">
+                    <h4>Stolik</h4>
+                    <input type="text" id="stolNazwa" placeholder="Nazwa (np. Stolik VIP)" value="Stolik 1">
+                    <div class="row">
+                        <input type="number" id="stolSzer" placeholder="Szer (m)" value="1.5" step="0.1">
+                        <input type="number" id="stolDl" placeholder="Dł (m)" value="1" step="0.1">
+                    </div>
+                    <input type="color" id="stolKolor" value="#4ecdc4">
+                    <button class="btn btn-dodaj" onclick="dodajStolik()" style="width:100%; margin-top:8px;">
+                        Dodaj stolik
+                    </button>
+                </div>
+                
+                <div class="dodaj-panel">
+                    <h4>Krzesło (zamówienia)</h4>
+                    <input type="text" id="krzNazwa" placeholder="Nazwa (np. Krzesło A)" value="Krzesło">
+                    <input type="color" id="krzKolor" value="#ffa500">
+                    <button class="btn btn-dodaj" onclick="dodajKrzeslo()" style="width:100%; margin-top:8px;">
+                        Dodaj krzesło
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Aktywni kelnerzy -->
             <div class="panel">
                 <h2>👥 Aktywni Kelnerzy</h2>
                 <div id="kelnerzy-lista" class="kelner-lista">
@@ -330,31 +447,35 @@ def index():
                 </div>
             </div>
         </div>
+        
+        <!-- PRAWA KOLUMNA - PLANSZA -->
         <div>
             <div class="panel">
-                <h2>🪑 Stoliki (w czasie rzeczywistym)</h2>
-                <div id="stoliki-lista" class="stolik-grid"></div>
+                <h2>🗺️ Plansza Sali (przeciągaj i obracaj)</h2>
+                <div class="plansza-container">
+                    <div class="plansza" id="plansza"></div>
+                </div>
+                <p style="color:#888; margin-top:10px; font-size:0.9rem;">
+                    💡 Stoliki: przeciągaj, obracaj pomarańczowym kółkiem | Krzesła: przeciągaj, mają własne ID i zamówienia
+                </p>
             </div>
         </div>
     </div>
 
     <script>
         const socket = io();
+        const SCALE = 50; // 1 metr = 50px
         
-        function otworzMenuModal(){
-            document.getElementById("menuModal").style.display="flex";
-        }
-        function zamknijMenuModal(){
-            document.getElementById("menuModal").style.display="none";
-        }
-        function pokazQR() {
-            document.getElementById('qrModal').style.display = 'flex';
-        }
-        function zamknijQR() {
-            document.getElementById('qrModal').style.display = 'none';
-        }
+        let przeciagany = null;
+        let obracany = null;
+        let offsetX = 0, offsetY = 0;
+        let startKat = 0;
+        
+        // Inicjalizacja
+        fetch('/api/stan').then(r => r.json()).then(render);
         
         function render(data) {
+            // Menu
             const menuDiv = document.getElementById('menu-lista');
             menuDiv.innerHTML = '';
             data.menu.forEach(danie => {
@@ -370,13 +491,12 @@ def index():
                         <div>
                             <button class="btn btn-odejmij" onclick="zmienIlosc(${danie.id}, -1)">-1</button>
                             <button class="btn btn-dodaj" onclick="zmienIlosc(${danie.id}, 1)">+1</button>
-                            <button class="btn btn-edytuj" onclick="edytujDanie(${danie.id})">✎</button>
-                            <button class="btn btn-usun" onclick="usunDanie(${danie.id})">🗑</button>
                         </div>
                     </div>
                 `;
             });
             
+            // Kelnerzy
             const kelnerDiv = document.getElementById('kelnerzy-lista');
             if (data.kelnerzy.length > 0) {
                 kelnerDiv.innerHTML = data.kelnerzy.map(k => 
@@ -386,42 +506,198 @@ def index():
                 kelnerDiv.innerHTML = '<p style="color: #888;">Brak zalogowanych kelnerów</p>';
             }
             
-            const stolikiDiv = document.getElementById('stoliki-lista');
-            stolikiDiv.innerHTML = '';
-            data.stoliki.forEach(s => {
-                let zamowienia = '';
-                data.menu.forEach(danie => {
-                    const nazwaLower = danie.nazwa.toLowerCase();
-                    const ilosc = s[nazwaLower] || 0;
-                    const kelner = s['kelner_' + nazwaLower] || '?';
-                    if (ilosc > 0) {
-                        zamowienia += `<div class="zamowienie">${danie.nazwa}: <strong>${ilosc}</strong> (${kelner})</div>`;
-                    }
-                });
-                if (!zamowienia) zamowienia = '<div style="color: #888;">Pusty</div>';
-                
-                stolikiDiv.innerHTML += `
-                    <div class="stolik">
-                        <div class="stolik-nr">Stolik ${s.numer}</div>
-                        ${zamowienia}
-                    </div>
+            // Plansza
+            renderPlansza(data.sala);
+        }
+        
+        function renderPlansza(sala) {
+            const plansza = document.getElementById('plansza');
+            plansza.innerHTML = '';
+            
+            // Stoliki
+            sala.stoliki.forEach(s => {
+                const div = document.createElement('div');
+                div.className = 'stolik-obiekt';
+                div.id = s.id;
+                div.style.width = (s.szerokosc * SCALE) + 'px';
+                div.style.height = (s.dlugosc * SCALE) + 'px';
+                div.style.left = s.poz_x + 'px';
+                div.style.top = s.poz_y + 'px';
+                div.style.transform = `rotate(${s.kat}deg)`;
+                div.style.background = s.kolor;
+                div.innerHTML = `
+                    ${s.nazwa}
+                    <div class="obrot" onmousedown="startObrot(event, '${s.id}')">↻</div>
+                    <div class="usun" onclick="usunStolik('${s.id}', event)">×</div>
                 `;
+                div.onmousedown = (e) => startDrag(e, s.id, 'stolik');
+                plansza.appendChild(div);
+            });
+            
+            // Krzesła
+            sala.krzesla.forEach(k => {
+                const div = document.createElement('div');
+                div.className = 'krzeslo-obiekt' + (k.zamowienia.length > 0 ? ' ma-zamowienie' : '');
+                div.id = k.id;
+                div.style.left = k.poz_x + 'px';
+                div.style.top = k.poz_y + 'px';
+                div.style.transform = `rotate(${k.kat}deg)`;
+                div.style.background = k.kolor;
+                
+                // Tooltip zamówień
+                let tooltipHTML = '<div class="zamowienia-tooltip"><h5>Zamówienia:</h5>';
+                if (k.zamowienia.length === 0) {
+                    tooltipHTML += '<div>Brak zamówień</div>';
+                } else {
+                    k.zamowienia.forEach(z => {
+                        tooltipHTML += `<div>${z.danie} x${z.ilosc} (${z.kelner})</div>`;
+                    });
+                }
+                tooltipHTML += '</div>';
+                
+                div.innerHTML = `
+                    ${k.nazwa}
+                    ${tooltipHTML}
+                    <div class="usun" onclick="usunKrzeslo('${k.id}', event)">×</div>
+                `;
+                div.onmousedown = (e) => startDrag(e, k.id, 'krzeslo');
+                plansza.appendChild(div);
             });
         }
         
+        // Drag & Drop
+        function startDrag(e, id, typ) {
+            if (e.target.classList.contains('obrot') || e.target.classList.contains('usun')) return;
+            
+            przeciagany = {id, typ, el: document.getElementById(id)};
+            const rect = przeciagany.el.getBoundingClientRect();
+            const parent = document.getElementById('plansza').getBoundingClientRect();
+            
+            offsetX = e.clientX - rect.left;
+            offsetY = e.clientY - rect.top;
+            
+            document.onmousemove = drag;
+            document.onmouseup = stopDrag;
+        }
+        
+        function drag(e) {
+            if (!przeciagany) return;
+            
+            const parent = document.getElementById('plansza').getBoundingClientRect();
+            let x = e.clientX - parent.left - offsetX;
+            let y = e.clientY - parent.top - offsetY;
+            
+            // Granice
+            x = Math.max(0, Math.min(x, 800 - przeciagany.el.offsetWidth));
+            y = Math.max(0, Math.min(y, 600 - przeciagany.el.offsetHeight));
+            
+            przeciagany.el.style.left = x + 'px';
+            przeciagany.el.style.top = y + 'px';
+        }
+        
+        function stopDrag() {
+            if (przeciagany) {
+                const x = parseFloat(przeciagany.el.style.left);
+                const y = parseFloat(przeciagany.el.style.top);
+                
+                fetch(`/api/przesun/${przeciagany.typ}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id: przeciagany.id, x, y})
+                });
+            }
+            przeciagany = null;
+            document.onmousemove = null;
+            document.onmouseup = null;
+        }
+        
+        // Obracanie
+        function startObrot(e, id) {
+            e.stopPropagation();
+            obracany = {id, el: document.getElementById(id), startX: e.clientX};
+            const match = obracany.el.style.transform.match(/rotate\\(([-\\d.]+)deg\\)/);
+            obracany.startKat = match ? parseFloat(match[1]) : 0;
+            
+            document.onmousemove = rotate;
+            document.onmouseup = stopObrot;
+        }
+        
+      function rotate(e) {
+    if (!obracany) return;
+  const delta = (e.clientX - obracany.startX) * 0.5;
+    const nowyKat = obracany.startKat + delta;
+    obracany.el.style.transform = `rotate(${nowyKat}deg)`;
+}
+        
+        function stopObrot() {
+            if (obracany) {
+                const match = obracany.el.style.transform.match(/rotate\\(([-\\d.]+)deg\\)/);
+                const kat = match ? parseFloat(match[1]) : 0;
+                const x = parseFloat(obracany.el.style.left);
+                const y = parseFloat(obracany.el.style.top);
+                
+                fetch('/api/przesun/stolik', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id: obracany.id, x, y, kat})
+                });
+            }
+            obracany = null;
+            document.onmousemove = null;
+            document.onmouseup = null;
+        }
+        
+        // Dodawanie
+        function dodajStolik() {
+            const dane = {
+                nazwa: document.getElementById('stolNazwa').value,
+                szer: parseFloat(document.getElementById('stolSzer').value),
+                dl: parseFloat(document.getElementById('stolDl').value),
+                kolor: document.getElementById('stolKolor').value
+            };
+            fetch('/api/dodaj/stolik', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(dane)
+            }).then(() => odswiez());
+        }
+        
+        function dodajKrzeslo() {
+            const dane = {
+                nazwa: document.getElementById('krzNazwa').value,
+                kolor: document.getElementById('krzKolor').value
+            };
+            fetch('/api/dodaj/krzeslo', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(dane)
+            }).then(() => odswiez());
+        }
+        
+        // Usuwanie
+        function usunStolik(id, e) {
+            e.stopPropagation();
+            if (!confirm('Usunąć stolik?')) return;
+            fetch('/api/usun/stolik/' + id, {method: 'DELETE'}).then(() => odswiez());
+        }
+        
+        function usunKrzeslo(id, e) {
+            e.stopPropagation();
+            if (!confirm('Usunąć krzesło? Stracisz historię zamówień!')) return;
+            fetch('/api/usun/krzeslo/' + id, {method: 'DELETE'}).then(() => odswiez());
+        }
+        
+        // Menu
         function dodajDanie() {
             const nazwa = document.getElementById('noweNazwa').value;
             const ilosc = parseInt(document.getElementById('noweIlosc').value);
             const kolor = document.getElementById('noweKolor').value;
-            
             if (nazwa && ilosc) {
                 fetch('/api/menu', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({nazwa, ilosc, kolor})
-                });
-                document.getElementById('noweNazwa').value = '';
-                document.getElementById('noweIlosc').value = '';
+                }).then(() => odswiez());
             }
         }
         
@@ -430,32 +706,25 @@ def index():
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({zmiana})
-            });
+            }).then(() => odswiez());
         }
         
-        function usunDanie(id) {
-            if (confirm('Usunąć to danie?')) {
-                fetch(`/api/menu/${id}`, {method: 'DELETE'});
-            }
+        function odswiez() {
+            fetch('/api/stan').then(r => r.json()).then(render);
         }
         
-        function edytujDanie(id) {
-            const nowaNazwa = prompt('Nowa nazwa:');
-            if (nowaNazwa) {
-                fetch(`/api/menu/${id}/nazwa`, {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({nazwa: nowaNazwa})
-                });
-            }
+        function pokazQR() {
+            document.getElementById('qrModal').style.display = 'flex';
+        }
+        function zamknijQR() {
+            document.getElementById('qrModal').style.display = 'none';
         }
         
-        socket.on('aktualizacja', render);
-        fetch('/api/stan').then(r => r.json()).then(render);
+        socket.on('aktualizacja', odswiez);
     </script>
 </body>
 </html>
-    ''', qr_kod=qr_kod, ip=ip, port=port, stan=stan, menu=stan['menu'])
+    ''', qr_kod=qr_kod, ip=ip)
 
 @app.route('/kelner')
 def kelner():
@@ -465,7 +734,7 @@ def kelner():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kelner - System Zamówień</title>
+    <title>Kelner - Zamówienia</title>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -473,155 +742,213 @@ def kelner():
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #1a1a2e;
             color: #eee;
-            padding: 15px;
-            max-width: 500px;
-            margin: 0 auto;
+            height: 100vh;
+            overflow: hidden;
         }
         .login-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
             text-align: center;
-            padding-top: 50px;
+            padding: 20px;
         }
-        .login-screen h1 { color: #e94560; margin-bottom: 30px; }
+        .login-screen h1 { color: #e94560; margin-bottom: 20px; }
         .login-screen input {
             width: 100%;
-            padding: 20px;
-            font-size: 1.3rem;
+            max-width: 300px;
+            padding: 15px;
+            font-size: 1.2rem;
             border-radius: 10px;
             border: 2px solid #e94560;
             background: #16213e;
             color: white;
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         .login-screen button {
             width: 100%;
-            padding: 20px;
-            font-size: 1.2rem;
+            max-width: 300px;
+            padding: 15px;
+            font-size: 1.1rem;
             background: #e94560;
             color: white;
             border: none;
             border-radius: 10px;
             cursor: pointer;
         }
-        .header {
+        
+        .app-container {
+            display: none;
+            height: 100vh;
+            flex-direction: column;
+        }
+        .top-bar {
+            background: #16213e;
+            padding: 10px 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
             border-bottom: 2px solid #e94560;
         }
-        .header h1 { color: #e94560; font-size: 1.5rem; }
-        .moje-imie {
+        .kelner-info {
             background: #4ecdc4;
             color: white;
-            padding: 10px 20px;
+            padding: 5px 15px;
             border-radius: 20px;
             font-weight: bold;
         }
-        .wyloguj {
-            background: #666;
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-left: 10px;
-        }
-        .menu-info {
-            background: #16213e;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        .danie-dostepne {
+        
+        .main-content {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* Lista krzeseł */
+        .krzesla-panel {
+            width: 40%;
+            background: #16213e;
+            overflow-y: auto;
+            padding: 15px;
+            border-right: 2px solid #0f3460;
+        }
+        .krzeslo-item {
+            background: #0f3460;
             padding: 15px;
             margin-bottom: 10px;
             border-radius: 10px;
-            background: #0f3460;
+            cursor: pointer;
+            border-left: 4px solid transparent;
+            transition: all 0.2s;
         }
-        .danie-nazwa { font-size: 1.2rem; font-weight: bold; }
-        .danie-ilosc { font-size: 1.5rem; }
-        .brak { opacity: 0.3; }
-        .stoliki-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 15px;
+        .krzeslo-item:hover { background: #1a4a7a; }
+        .krzeslo-item.wybrane { 
+            border-left-color: #e94560;
+            background: #1a4a7a;
         }
-        .stolik {
-            background: #16213e;
-            border-radius: 15px;
-            padding: 20px;
-            border-left: 5px solid #e94560;
+        .krzeslo-item.ma-zamowienie {
+            border-left-color: #ff6b6b;
         }
-        .stolik-nr {
-            font-size: 1.3rem;
-            color: #e94560;
-            margin-bottom: 15px;
-            font-weight: bold;
+        .krzeslo-header {
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
         }
-        .zamowienia-moje {
-            background: rgba(78, 205, 196, 0.2);
-            padding: 10px;
-            border-radius: 10px;
-            margin-bottom: 15px;
-            border: 1px solid #4ecdc4;
+        .krzeslo-nazwa { font-weight: bold; font-size: 1.1rem; }
+        .krzeslo-id { 
+            font-size: 0.7rem; 
+            color: #888; 
+            font-family: monospace;
         }
-        .zamowienia-moje h4 { color: #4ecdc4; margin-bottom: 5px; }
-        .przyciski {
+        .zamowienia-podglad {
+            font-size: 0.85rem;
+            color: #4ecdc4;
+        }
+        
+        /* Panel zamówień */
+        .zamowienia-panel {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .krzeslo-info {
+            background: #16213e;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+        .krzeslo-info h2 { color: #e94560; margin-bottom: 5px; }
+        .krzeslo-info .id { color: #888; font-size: 0.9rem; font-family: monospace; }
+        
+        .menu-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
         }
-        .btn-danie {
+        .danie-btn {
             padding: 20px;
             border: none;
-            border-radius: 10px;
-            font-size: 1.1rem;
+            border-radius: 12px;
+            font-size: 1rem;
             font-weight: bold;
             cursor: pointer;
             transition: all 0.2s;
+            color: white;
         }
-        .btn-danie:disabled {
-            opacity: 0.3;
-            cursor: not-allowed;
+        .danie-btn:hover:not(:disabled) { transform: translateY(-3px); }
+        .danie-btn:active:not(:disabled) { transform: translateY(0); }
+        .danie-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .danie-btn .ilosc { 
+            display: block; 
+            font-size: 0.8rem; 
+            margin-top: 5px;
+            opacity: 0.8;
         }
-        .btn-danie:active:not(:disabled) {
-            transform: scale(0.95);
+        
+        .historia-box {
+            background: #16213e;
+            border-radius: 15px;
+            padding: 20px;
         }
-        .hidden { display: none !important; }
+        .historia-box h3 { color: #4ecdc4; margin-bottom: 15px; }
+        .zam-historia {
+            background: #0f3460;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .zam-historia button {
+            background: #ff6b6b;
+            border: none;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .empty-state {
+            text-align: center;
+            color: #888;
+            padding: 50px;
+        }
     </style>
 </head>
 <body>
     <div id="loginScreen" class="login-screen">
         <h1>🍽️ System Zamówień</h1>
-        <p style="margin-bottom: 30px; color: #888;">Witaj! Podaj swoje imię:</p>
+        <p style="color:#888; margin-bottom:30px;">Podaj swoje imię</p>
         <input type="text" id="imieInput" placeholder="Twoje imię" maxlength="20">
         <button onclick="zaloguj()">Wejdź do systemu</button>
     </div>
     
-    <div id="appScreen" class="hidden">
-        <div class="header">
-            <h1>🍽️ Zamówienia</h1>
-            <div>
-                <span class="moje-imie" id="mojeImie">Kelner</span>
-                <button class="wyloguj" onclick="wyloguj()">×</button>
+    <div id="appScreen" class="app-container">
+        <div class="top-bar">
+            <h2>🍽️ Zamówienia</h2>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <span class="kelner-info" id="kelnerName">Kelner</span>
+                <button onclick="wyloguj()" style="background:#666; color:white; border:none; padding:5px 15px; border-radius:5px; cursor:pointer;">×</button>
             </div>
         </div>
-        <div class="menu-info" id="menuInfo">
-            <h3 style="margin-bottom: 15px; color: #e94560;">📦 Dostępność:</h3>
-            <div id="daniaLista"></div>
+        
+        <div class="main-content">
+            <div class="krzesla-panel" id="krzeslaLista"></div>
+            <div class="zamowienia-panel" id="zamowieniaPanel">
+                <div class="empty-state">Wybierz krzesło z listy</div>
+            </div>
         </div>
-        <div id="stolikiLista" class="stoliki-grid"></div>
     </div>
 
     <script>
         let mojeImie = localStorage.getItem('kelnerImie');
+        let wybraneKrzeslo = null;
+        let salaData = null;
+        let menuData = [];
         const socket = io();
         
         if (mojeImie) {
@@ -631,10 +958,7 @@ def kelner():
         
         function zaloguj() {
             const imie = document.getElementById('imieInput').value.trim();
-            if (imie.length < 2) {
-                alert('Wpisz przynajmniej 2 znaki!');
-                return;
-            }
+            if (imie.length < 2) return alert('Wpisz przynajmniej 2 znaki!');
             mojeImie = imie;
             localStorage.setItem('kelnerImie', imie);
             socket.emit('zaloguj', {imie: imie});
@@ -648,101 +972,145 @@ def kelner():
         }
         
         function pokazApp() {
-            document.getElementById('loginScreen').classList.add('hidden');
-            document.getElementById('appScreen').classList.remove('hidden');
-            document.getElementById('mojeImie').textContent = mojeImie;
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('appScreen').style.display = 'flex';
+            document.getElementById('kelnerName').textContent = mojeImie;
+            odswiez();
         }
         
-        function render(data) {
-            const daniaDiv = document.getElementById('daniaLista');
-            daniaDiv.innerHTML = '';
-            data.menu.forEach(danie => {
-                const brak = danie.ilosc <= 0;
-                daniaDiv.innerHTML += `
-                    <div class="danie-dostepne ${brak ? 'brak' : ''}" style="border-left: 5px solid ${danie.kolor}">
-                        <span class="danie-nazwa">${danie.nazwa}</span>
-                        <span class="danie-ilosc" style="color: ${danie.kolor}">${danie.ilosc}</span>
-                    </div>
-                `;
-            });
-            
-            const stolikiDiv = document.getElementById('stolikiLista');
-            stolikiDiv.innerHTML = '';
-            
-            data.stoliki.forEach(stolik => {
-                let mojeZamowienia = {};
-                let mojeZamowieniaHTML = '';
-                
-                data.menu.forEach(danie => {
-                    const nazwaLower = danie.nazwa.toLowerCase();
-                    const kelnerKey = 'kelner_' + nazwaLower;
-                    const iloscKey = nazwaLower;
-                    
-                    if (stolik[kelnerKey] === mojeImie && stolik[iloscKey] > 0) {
-                        mojeZamowienia[danie.nazwa] = stolik[iloscKey];
-                    }
-                });
-                
-                if (Object.keys(mojeZamowienia).length > 0) {
-                    mojeZamowieniaHTML = '<div class="zamowienia-moje"><h4>👤 Twoje zamówienia:</h4>';
-                    for (let [nazwa, ilosc] of Object.entries(mojeZamowienia)) {
-                        mojeZamowieniaHTML += `<div>${nazwa}: ${ilosc}</div>`;
-                    }
-                    mojeZamowieniaHTML += '</div>';
+        function odswiez() {
+            Promise.all([
+                fetch('/api/sala').then(r => r.json()),
+                fetch('/api/menu').then(r => r.json())
+            ]).then(([sala, menu]) => {
+                salaData = sala;
+                menuData = menu;
+                renderKrzesla();
+                if (wybraneKrzeslo) {
+                    const k = sala.krzesla.find(x => x.id === wybraneKrzeslo.id);
+                    if (k) pokazPanel(k);
                 }
+            });
+        }
+        
+        function renderKrzesla() {
+            const div = document.getElementById('krzeslaLista');
+            div.innerHTML = '';
+            
+            salaData.krzesla.forEach(k => {
+                const maZam = k.zamowienia.length > 0;
+                const suma = k.zamowienia.reduce((s, z) => s + z.ilosc, 0);
                 
-                let przyciskiHTML = '<div class="przyciski">';
-                data.menu.forEach(danie => {
-                    const dostepne = danie.ilosc > 0;
-                    const nazwaLower = danie.nazwa.toLowerCase();
-                    przyciskiHTML += `
-                        <button class="btn-danie" 
-                                style="background: ${danie.kolor}; color: white;"
-                                onclick="dodaj(${stolik.numer}, '${nazwaLower}', '${danie.nazwa}')"
-                                ${!dostepne ? 'disabled' : ''}>
-                            + ${danie.nazwa.toUpperCase()}
-                        </button>
-                    `;
-                });
-                przyciskiHTML += '</div>';
+                const item = document.createElement('div');
+                item.className = 'krzeslo-item' + 
+                    (k.id === (wybraneKrzeslo?.id) ? ' wybrane' : '') +
+                    (maZam ? ' ma-zamowienie' : '');
                 
-                const sumaZamowien = data.menu.reduce((sum, danie) => {
-                    return sum + (stolik[danie.nazwa.toLowerCase()] || 0);
-                }, 0);
+                item.innerHTML = `
+                    <div class="krzeslo-header">
+                        <span class="krzeslo-nazwa">${k.nazwa}</span>
+                        ${maZam ? `<span style="background:#ff6b6b; color:white; padding:2px 8px; border-radius:10px; font-size:0.8rem;">${suma}</span>` : ''}
+                    </div>
+                    <div class="krzeslo-id">${k.id}</div>
+                    ${maZam ? `<div class="zamowienia-podglad">${k.zamowienia.slice(0,2).map(z => z.danie).join(', ')}${k.zamowienia.length > 2 ? '...' : ''}</div>` : ''}
+                `;
                 
-                stolikiDiv.innerHTML += `
-                    <div class="stolik">
-                        <div class="stolik-nr">
-                            Stolik ${stolik.numer}
-                            ${sumaZamowien > 0 ? 
-                                `<span style="font-size: 0.9rem; color: #888;">Suma: ${sumaZamowien}</span>` : ''}
-                        </div>
-                        ${mojeZamowieniaHTML}
-                        ${przyciskiHTML}
+                item.onclick = () => {
+                    wybraneKrzeslo = k;
+                    renderKrzesla();
+                    pokazPanel(k);
+                };
+                
+                div.appendChild(item);
+            });
+        }
+        
+        function pokazPanel(krzeslo) {
+            const panel = document.getElementById('zamowieniaPanel');
+            
+            // Grupuj zamówienia
+            const grupy = {};
+            krzeslo.zamowienia.forEach(z => {
+                if (!grupy[z.danie]) grupy[z.danie] = 0;
+                grupy[z.danie] += z.ilosc;
+            });
+            
+            let historiaHTML = '';
+            if (krzeslo.zamowienia.length > 0) {
+                historiaHTML = `
+                    <div class="historia-box">
+                        <h3>📝 Zamówienia na tym krześle:</h3>
+                        ${Object.entries(grupy).map(([danie, ilosc]) => `
+                            <div class="zam-historia">
+                                <span><strong>${danie}</strong> × ${ilosc}</span>
+                            </div>
+                        `).join('')}
                     </div>
                 `;
+            }
+            
+            panel.innerHTML = `
+                <div class="krzeslo-info">
+                    <h2>${krzeslo.nazwa}</h2>
+                    <div class="id">ID: ${krzeslo.id}</div>
+                </div>
+                
+                <div class="menu-grid">
+                    ${menuData.map(d => `
+                        <button class="danie-btn" 
+                                style="background:${d.kolor};"
+                                onclick="dodajZamowienie('${krzeslo.id}', '${d.nazwa}')"
+                                ${d.ilosc <= 0 ? 'disabled' : ''}>
+                            ${d.nazwa}
+                            <span class="ilosc">${d.ilosc} szt.</span>
+                        </button>
+                    `).join('')}
+                </div>
+                
+                ${historiaHTML}
+            `;
+        }
+        
+        function dodajZamowienie(kid, danie) {
+            fetch('/api/zamowienie', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    krzeslo_id: kid,
+                    danie: danie,
+                    kelner: mojeImie
+                })
+            }).then(r => r.json()).then(resp => {
+                if (resp.ok) {
+                    odswiez();
+                } else {
+                    alert('Błąd: ' + (resp.error || 'Nieznany błąd'));
+                }
             });
         }
         
-        function dodaj(stolik, danieKey, danieNazwa) {
-            socket.emit('dodaj_danie', {
-                stolik: stolik, 
-                danie: danieKey,
-                danie_nazwa: danieNazwa,
-                kelner: mojeImie
-            });
-        }
-        
-        socket.on('aktualizacja', render);
-        fetch('/api/stan').then(r => r.json()).then(render);
+        socket.on('aktualizacja', odswiez);
     </script>
 </body>
 </html>
     ''')
 
+# API
 @app.route('/api/stan')
 def api_stan():
-    return jsonify(get_stan())
+    return jsonify({
+        'menu': get_menu(),
+        'kelnerzy': get_kelnerzy(),
+        'sala': pobierz_sale()
+    })
+
+@app.route('/api/sala')
+def api_sala():
+    return jsonify(pobierz_sale())
+
+@app.route('/api/menu')
+def api_menu():
+    return jsonify(get_menu())
 
 @app.route('/api/menu', methods=['POST'])
 def dodaj_menu():
@@ -753,7 +1121,7 @@ def dodaj_menu():
               (data['nazwa'], data['ilosc'], data['kolor']))
     conn.commit()
     conn.close()
-    socketio.emit('aktualizacja', get_stan())
+    socketio.emit('aktualizacja')
     return jsonify({'ok': True})
 
 @app.route('/api/menu/<int:id>', methods=['PUT'])
@@ -761,34 +1129,75 @@ def edytuj_menu(id):
     data = request.json
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
-    if 'zmiana' in data:
-        c.execute("UPDATE menu SET ilosc = MAX(0, ilosc + ?) WHERE id=?", (data['zmiana'], id))
-    
+    c.execute("UPDATE menu SET ilosc = MAX(0, ilosc + ?) WHERE id=?", (data['zmiana'], id))
     conn.commit()
     conn.close()
-    socketio.emit('aktualizacja', get_stan())
+    socketio.emit('aktualizacja', broadcast=True)
     return jsonify({'ok': True})
 
-@app.route('/api/menu/<int:id>/nazwa', methods=['PUT'])
-def zmien_nazwe(id):
-    data = request.json
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE menu SET nazwa=? WHERE id=?", (data['nazwa'], id))
-    conn.commit()
-    conn.close()
-    socketio.emit('aktualizacja', get_stan())
+# Plansza - stoliki
+@app.route('/api/dodaj/stolik', methods=['POST'])
+def api_dodaj_stolik():
+    d = request.json
+    dodaj_stolik(d['nazwa'], d['szer'], d['dl'], 50, 50, 0, d.get('kolor', '#4ecdc4'))
+    socketio.emit('aktualizacja')
     return jsonify({'ok': True})
 
-@app.route('/api/menu/<int:id>', methods=['DELETE'])
-def usun_menu(id):
+@app.route('/api/usun/stolik/<id>', methods=['DELETE'])
+def api_usun_stolik(id):
+    usun_stolik(id)
+    socketio.emit('aktualizacja')
+    return jsonify({'ok': True})
+
+# Plansza - krzesła
+@app.route('/api/dodaj/krzeslo', methods=['POST'])
+def api_dodaj_krzeslo():
+    d = request.json
+    dodaj_krzeslo(d.get('nazwa', 'Krzesło'), 100, 100, 0, d.get('kolor', '#ffa500'))
+    socketio.emit('aktualizacja')
+    return jsonify({'ok': True})
+
+@app.route('/api/usun/krzeslo/<id>', methods=['DELETE'])
+def api_usun_krzeslo(id):
+    usun_krzeslo(id)
+    socketio.emit('aktualizacja')
+    return jsonify({'ok': True})
+
+# Przesuwanie
+@app.route('/api/przesun/<typ>', methods=['POST'])
+def api_przesun(typ):
+    d = request.json
+    if typ == 'stolik':
+        przesun_stolik(d['id'], d['x'], d['y'], d.get('kat'))
+    else:
+        przesun_krzeslo(d['id'], d['x'], d['y'], d.get('kat'))
+    socketio.emit('aktualizacja')
+    return jsonify({'ok': True})
+
+# Zamówienia
+@app.route('/api/zamowienie', methods=['POST'])
+def api_zamowienie():
+    d = request.json
+    
+    # Sprawdź dostępność
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("DELETE FROM menu WHERE id=?", (id,))
+    c.execute("SELECT ilosc FROM menu WHERE nazwa=?", (d['danie'],))
+    wynik = c.fetchone()
+    
+    if not wynik or wynik[0] <= 0:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Brak w magazynie'})
+    
+    # Dodaj zamówienie
+    dodaj_zamowienie_krzeslo(d['krzeslo_id'], d['danie'], d['kelner'])
+    
+    # Zmniejsz stan
+    c.execute("UPDATE menu SET ilosc = ilosc - 1 WHERE nazwa=?", (d['danie'],))
     conn.commit()
     conn.close()
-    socketio.emit('aktualizacja', get_stan())
+    
+    socketio.emit('aktualizacja') 
     return jsonify({'ok': True})
 
 @socketio.on('zaloguj')
@@ -802,7 +1211,6 @@ def handle_zaloguj(data):
         c.execute("UPDATE kelnerzy SET aktywny=1 WHERE imie=?", (data['imie'],))
     conn.commit()
     conn.close()
-    emit('aktualizacja', get_stan(), broadcast=True)
 
 @socketio.on('wyloguj')
 def handle_wyloguj(data):
@@ -811,37 +1219,6 @@ def handle_wyloguj(data):
     c.execute("UPDATE kelnerzy SET aktywny=0 WHERE imie=?", (data['imie'],))
     conn.commit()
     conn.close()
-    emit('aktualizacja', get_stan(), broadcast=True)
-
-@socketio.on('dodaj_danie')
-def handle_dodaj(data):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    stolik = data['stolik']
-    danie = data['danie']
-    danie_nazwa = data.get('danie_nazwa', danie.capitalize())
-    kelner = data['kelner']
-    
-    c.execute("SELECT ilosc FROM menu WHERE nazwa=?", (danie_nazwa,))
-    wynik = c.fetchone()
-    
-    if wynik and wynik[0] > 0:
-        c.execute("PRAGMA table_info(stoliki)")
-        kolumny = [row[1] for row in c.fetchall()]
-        
-        if danie not in kolumny:
-            c.execute(f"ALTER TABLE stoliki ADD COLUMN {danie} INTEGER DEFAULT 0")
-            c.execute(f"ALTER TABLE stoliki ADD COLUMN kelner_{danie} TEXT")
-            conn.commit()
-        
-        c.execute(f"UPDATE stoliki SET {danie} = COALESCE({danie}, 0) + 1, kelner_{danie}=? WHERE numer=?", 
-                  (kelner, stolik))
-        c.execute("UPDATE menu SET ilosc = ilosc - 1 WHERE nazwa=?", (danie_nazwa,))
-        conn.commit()
-    
-    conn.close()
-    emit('aktualizacja', get_stan(), broadcast=True)
 
 if __name__ == '__main__':
     init_db()
@@ -850,14 +1227,11 @@ if __name__ == '__main__':
     PORT = 5000
     
     print(f"\n{'='*60}")
-    print(f"🍽️  SYSTEM ZAMÓWIEŃ URUCHOMIONY!")
+    print(f"🍽️  SYSTEM ZAMÓWIEŃ - PLANSZA SALI")
     print(f"{'='*60}")
-    print(f"\n📱 Panel kelnera: http://{IP}:{PORT}/kelner")
-    print(f"🖥️  Panel kucharza (TY): http://{IP}:{PORT}")
-    print(f"    lub: http://127.0.0.1:{PORT}")
-    print(f"\n💡 Kliknij QR kod w prawym górnym rogu aby pokazać kelnerom!")
+    print(f"\n🖥️  Admin (plansza): http://{IP}:{PORT}")
+    print(f"📱 Kelner: http://{IP}:{PORT}/kelner")
     print(f"{'='*60}\n")
     
     threading.Timer(2.0, lambda: webbrowser.open(f'http://127.0.0.1:{PORT}')).start()
-    
     socketio.run(app, host='0.0.0.0', port=PORT, debug=False)
