@@ -1658,19 +1658,21 @@ def handle_wyloguj(data):
     conn.close()
 
 # Globalny słownik zajętych krzeseł
-zajete_krzesla = {}
+zajete_krzesla = {}  # krzeslo_id -> kelner_imie
 
 @socketio.on('zajmij_krzeslo')
 def handle_zajmij(data):
     krzeslo_id = data['krzeslo_id']
     kelner = data['kelner']
     
+    # Sprawdź czy nie zajęte przez innego
     if krzeslo_id in zajete_krzesla and zajete_krzesla[krzeslo_id] != kelner:
-        emit('blad', {'msg': 'Krzesło zajęte'})
+        emit('blad', {'msg': 'Krzesło zajęte przez innego kelnera'})
         return
     
     zajete_krzesla[krzeslo_id] = kelner
     emit('krzeslo_zajete', {'krzeslo_id': krzeslo_id, 'kelner': kelner}, broadcast=True)
+    emit('zajete_krzesla', zajete_krzesla)  # wyślij aktualną listę do klienta
 
 @socketio.on('zwolnij_krzeslo')
 def handle_zwolnij(data):
@@ -1681,30 +1683,14 @@ def handle_zwolnij(data):
         del zajete_krzesla[krzeslo_id]
         emit('krzeslo_wolne', {'krzeslo_id': krzeslo_id}, broadcast=True)
 
-@socketio.on('connect')
-def handle_connect():
+@socketio.on('pobierz_zajete')
+def handle_pobierz_zajete():
     emit('zajete_krzesla', zajete_krzesla)
 
-# Dodaj endpoint usuwania zamówienia
-@app.route('/api/zamowienie/usun/<int:id>', methods=['DELETE'])
-def usun_zamowienie(id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # Pobierz info o zamówieniu
-    c.execute("SELECT danie_nazwa, ilosc FROM krzeslo_zamowienia WHERE id=?", (id,))
-    zam = c.fetchone()
-    
-    if zam:
-        # Zwróć do menu
-        c.execute("UPDATE menu SET ilosc = ilosc + ? WHERE nazwa=?", (zam[1], zam[0]))
-        # Usuń zamówienie
-        c.execute("DELETE FROM krzeslo_zamowienia WHERE id=?", (id,))
-        conn.commit()
-    
-    conn.close()
-    socketio.emit('aktualizacja')
-    return jsonify({'ok': True})
+@socketio.on('connect')
+def handle_connect():
+    # Wyślij aktualną listę zajętych przy połączeniu
+    emit('zajete_krzesla', zajete_krzesla)
 
 if __name__ == '__main__':
     init_db()
