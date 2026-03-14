@@ -734,7 +734,7 @@ def kelner():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kelner - Zamówienia</title>
+    <title>Kelner - Mapa Sali</title>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -745,6 +745,8 @@ def kelner():
             height: 100vh;
             overflow: hidden;
         }
+        
+        /* Login */
         .login-screen {
             display: flex;
             flex-direction: column;
@@ -779,11 +781,14 @@ def kelner():
             cursor: pointer;
         }
         
+        /* App */
         .app-container {
             display: none;
             height: 100vh;
             flex-direction: column;
         }
+        
+        /* Top bar */
         .top-bar {
             background: #16213e;
             padding: 10px 15px;
@@ -791,7 +796,9 @@ def kelner():
             justify-content: space-between;
             align-items: center;
             border-bottom: 2px solid #e94560;
+            height: 60px;
         }
+        .top-bar h2 { color: #e94560; }
         .kelner-info {
             background: #4ecdc4;
             color: white;
@@ -800,77 +807,222 @@ def kelner():
             font-weight: bold;
         }
         
+        /* Main content */
         .main-content {
             display: flex;
             flex: 1;
             overflow: hidden;
         }
         
-        /* Lista krzeseł */
-        .krzesla-panel {
-            width: 40%;
-            background: #16213e;
-            overflow-y: auto;
-            padding: 15px;
-            border-right: 2px solid #0f3460;
+        /* Mapa z zoomem */
+        .mapa-wrapper {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #0a0a1a;
         }
-        .krzeslo-item {
-            background: #0f3460;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 10px;
+        .mapa-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            cursor: grab;
+        }
+        .mapa-container:active {
+            cursor: grabbing;
+        }
+        .mapa-content {
+            position: absolute;
+            transform-origin: 0 0;
+            transition: transform 0.1s ease-out;
+        }
+        .plansza-zoom {
+            position: relative;
+            background: 
+                linear-gradient(rgba(78, 205, 196, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(78, 205, 196, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+            background-color: #1a1a2e;
+            border: 3px solid #e94560;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+        
+        /* Kontrolki zoom */
+        .zoom-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 100;
+        }
+        .zoom-btn {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            border: none;
+            background: #4ecdc4;
+            color: white;
+            font-size: 1.4rem;
+            font-weight: bold;
             cursor: pointer;
-            border-left: 4px solid transparent;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
             transition: all 0.2s;
         }
-        .krzeslo-item:hover { background: #1a4a7a; }
-        .krzeslo-item.wybrane { 
-            border-left-color: #e94560;
-            background: #1a4a7a;
+        .zoom-btn:hover {
+            background: #3dbdb4;
+            transform: scale(1.1);
         }
-        .krzeslo-item.ma-zamowienie {
-            border-left-color: #ff6b6b;
-        }
-        .krzeslo-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 5px;
-        }
-        .krzeslo-nazwa { font-weight: bold; font-size: 1.1rem; }
-        .krzeslo-id { 
-            font-size: 0.7rem; 
-            color: #888; 
-            font-family: monospace;
-        }
-        .zamowienia-podglad {
-            font-size: 0.85rem;
+        .zoom-info {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.95rem;
             color: #4ecdc4;
+            z-index: 100;
+            border: 1px solid #4ecdc4;
+        }
+        
+        /* Krzesła na mapie */
+        .krzeslo-map {
+            position: absolute;
+            width: 45px;
+            height: 45px;
+            border: 3px solid white;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            transition: all 0.2s;
+            transform-origin: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .krzeslo-map:hover {
+            transform: scale(1.25);
+            z-index: 1000;
+            box-shadow: 0 0 25px currentColor;
+        }
+        .krzeslo-map.wybrane {
+            box-shadow: 0 0 0 5px #e94560, 0 0 30px #e94560;
+            z-index: 500;
+            animation: pulse-wybrane 1.5s infinite;
+        }
+        @keyframes pulse-wybrane {
+            0%, 100% { box-shadow: 0 0 0 5px #e94560, 0 0 30px #e94560; }
+            50% { box-shadow: 0 0 0 8px #e94560, 0 0 50px #e94560; }
+        }
+        .krzeslo-map.zajete {
+            border-color: #ff6b6b;
+            opacity: 0.6;
+        }
+        .krzeslo-map.zajete::after {
+            content: '🔒';
+            position: absolute;
+            top: -15px;
+            right: -15px;
+            font-size: 16px;
+        }
+        .krzeslo-map.ma-zamowienie {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 5px currentColor; }
+            50% { box-shadow: 0 0 25px currentColor; }
+        }
+        .krzeslo-map .licznik {
+            position: absolute;
+            bottom: -8px;
+            right: -8px;
+            background: #ff6b6b;
+            color: white;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            border: 2px solid white;
+        }
+        
+        /* Stolik na mapie */
+        .stolik-map {
+            position: absolute;
+            border: 3px solid rgba(255,255,255,0.6);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            font-size: 13px;
+            opacity: 0.5;
+            pointer-events: none;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.2);
         }
         
         /* Panel zamówień */
         .zamowienia-panel {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-        }
-        .krzeslo-info {
+            width: 380px;
             background: #16213e;
             padding: 20px;
-            border-radius: 15px;
-            margin-bottom: 20px;
+            overflow-y: auto;
+            border-left: 3px solid #0f3460;
+            transition: transform 0.3s ease;
         }
-        .krzeslo-info h2 { color: #e94560; margin-bottom: 5px; }
-        .krzeslo-info .id { color: #888; font-size: 0.9rem; font-family: monospace; }
+        .zamowienia-panel.ukryty {
+            transform: translateX(100%);
+            width: 0;
+            padding: 0;
+            overflow: hidden;
+            border: none;
+        }
         
+        .krzeslo-info {
+            background: #0f3460;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border-left: 4px solid #e94560;
+        }
+        .krzeslo-info h3 { color: #e94560; margin-bottom: 8px; font-size: 1.3rem; }
+        .krzeslo-info .id { 
+            color: #888; 
+            font-size: 0.85rem; 
+            font-family: monospace;
+            background: #1a1a2e;
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: inline-block;
+        }
+        .krzeslo-info .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-top: 12px;
+            font-weight: bold;
+        }
+        .status.wolne { background: #4ecdc4; color: #1a1a2e; }
+        .status.zajete { background: #ff6b6b; }
+        .status.twoje { background: #ffa500; color: #1a1a2e; }
+        
+        /* Menu grid */
         .menu-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 25px;
         }
         .danie-btn {
-            padding: 20px;
+            padding: 18px;
             border: none;
             border-radius: 12px;
             font-size: 1rem;
@@ -878,68 +1030,153 @@ def kelner():
             cursor: pointer;
             transition: all 0.2s;
             color: white;
+            position: relative;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
-        .danie-btn:hover:not(:disabled) { transform: translateY(-3px); }
+        .danie-btn:hover:not(:disabled) { 
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
         .danie-btn:active:not(:disabled) { transform: translateY(0); }
-        .danie-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-        .danie-btn .ilosc { 
-            display: block; 
-            font-size: 0.8rem; 
-            margin-top: 5px;
-            opacity: 0.8;
+        .danie-btn:disabled { 
+            opacity: 0.3; 
+            cursor: not-allowed;
+            filter: grayscale(100%);
+        }
+        .danie-btn .stan {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            font-size: 0.75rem;
+            background: rgba(0,0,0,0.4);
+            padding: 3px 8px;
+            border-radius: 8px;
         }
         
+        /* Historia zamówień */
         .historia-box {
-            background: #16213e;
-            border-radius: 15px;
+            background: #0f3460;
+            border-radius: 12px;
             padding: 20px;
         }
-        .historia-box h3 { color: #4ecdc4; margin-bottom: 15px; }
-        .zam-historia {
-            background: #0f3460;
+        .historia-box h4 { 
+            color: #4ecdc4; 
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+        .zam-item {
+            background: #1a1a2e;
             padding: 12px;
             margin-bottom: 10px;
-            border-radius: 8px;
+            border-radius: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border-left: 3px solid #4ecdc4;
         }
-        .zam-historia button {
+        .zam-item button {
             background: #ff6b6b;
             border: none;
             color: white;
-            padding: 5px 12px;
-            border-radius: 5px;
+            padding: 6px 12px;
+            border-radius: 6px;
             cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
         }
+        .zam-item button:hover { background: #ff4757; transform: scale(1.05); }
+        
         .empty-state {
             text-align: center;
             color: #888;
-            padding: 50px;
+            padding: 60px 20px;
+        }
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        .hint-box {
+            background: linear-gradient(135deg, #0f3460, #1a4a7a);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4ecdc4;
+        }
+        .hint-box p { margin: 0; color: #4ecdc4; font-size: 0.95rem; }
+        
+        /* Przycisk zamknij */
+        .btn-zamknij {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 25px;
+            transition: all 0.2s;
+        }
+        .btn-zamknij.podglad {
+            background: #4ecdc4;
+            color: #1a1a2e;
+        }
+        .btn-zamknij.edycja {
+            background: #666;
+            color: white;
+        }
+        .btn-zamknij:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         }
     </style>
 </head>
 <body>
+    <!-- Ekran logowania -->
     <div id="loginScreen" class="login-screen">
         <h1>🍽️ System Zamówień</h1>
-        <p style="color:#888; margin-bottom:30px;">Podaj swoje imię</p>
+        <p style="color:#888; margin-bottom:30px;">Podaj swoje imię aby rozpocząć</p>
         <input type="text" id="imieInput" placeholder="Twoje imię" maxlength="20">
         <button onclick="zaloguj()">Wejdź do systemu</button>
     </div>
     
+    <!-- Główna aplikacja -->
     <div id="appScreen" class="app-container">
         <div class="top-bar">
-            <h2>🍽️ Zamówienia</h2>
+            <h2>🗺️ Mapa Sali Restauracyjnej</h2>
             <div style="display:flex; gap:10px; align-items:center;">
                 <span class="kelner-info" id="kelnerName">Kelner</span>
-                <button onclick="wyloguj()" style="background:#666; color:white; border:none; padding:5px 15px; border-radius:5px; cursor:pointer;">×</button>
+                <button onclick="wyloguj()" style="background:#ff6b6b; color:white; border:none; padding:8px 18px; border-radius:20px; cursor:pointer; font-weight:bold;">Wyloguj</button>
             </div>
         </div>
         
         <div class="main-content">
-            <div class="krzesla-panel" id="krzeslaLista"></div>
-            <div class="zamowienia-panel" id="zamowieniaPanel">
-                <div class="empty-state">Wybierz krzesło z listy</div>
+            <!-- Mapa sali z zoomem -->
+            <div class="mapa-wrapper" id="mapaWrapper">
+                <div class="zoom-info" id="zoomInfo">🔍 100% | Przeciągaj aby przesunąć • Scroll aby przybliżyć</div>
+                
+                <div class="mapa-container" id="mapaContainer">
+                    <div class="mapa-content" id="mapaContent">
+                        <div class="plansza-zoom" id="planszaZoom" style="width: 800px; height: 600px;">
+                            <!-- Dynamicznie renderowane -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="zoom-controls">
+                    <button class="zoom-btn" onclick="zoomIn()" title="Przybliż (+)">+</button>
+                    <button class="zoom-btn" onclick="fitToScreen()" title="Dopasuj do ekranu">⌂</button>
+                    <button class="zoom-btn" onclick="zoomOut()" title="Oddal (−)">−</button>
+                </div>
+            </div>
+            
+            <!-- Panel zamówień -->
+            <div class="zamowienia-panel ukryty" id="zamowieniaPanel">
+                <div id="zamowieniaContent">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🪑</div>
+                        <p>Wybierz krzesło z mapy aby rozpocząć obsługę</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -947,10 +1184,95 @@ def kelner():
     <script>
         let mojeImie = localStorage.getItem('kelnerImie');
         let wybraneKrzeslo = null;
+        let zajeteKrzesla = {};
         let salaData = null;
         let menuData = [];
         const socket = io();
         
+        // Zoom i Pan
+        let scale = 1;
+        let panX = 0;
+        let panY = 0;
+        let isPanning = false;
+        let startPanX = 0;
+        let startPanY = 0;
+        
+        const mapaContainer = document.getElementById('mapaContainer');
+        const mapaContent = document.getElementById('mapaContent');
+        const zoomInfo = document.getElementById('zoomInfo');
+        
+        function updateTransform() {
+            mapaContent.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+            zoomInfo.textContent = `🔍 ${Math.round(scale * 100)}% | Przeciągaj aby przesunąć • Scroll aby przybliżyć`;
+        }
+        
+        function zoomIn() {
+            scale = Math.min(scale * 1.25, 4);
+            updateTransform();
+        }
+        
+        function zoomOut() {
+            scale = Math.max(scale / 1.25, 0.2);
+            updateTransform();
+        }
+        
+        function resetZoom() {
+            scale = 1;
+            panX = 0;
+            panY = 0;
+            updateTransform();
+        }
+        
+        function fitToScreen() {
+            const wrapper = document.getElementById('mapaWrapper');
+            const plansza = document.getElementById('planszaZoom');
+            const scaleX = (wrapper.clientWidth - 40) / plansza.clientWidth;
+            const scaleY = (wrapper.clientHeight - 40) / plansza.clientHeight;
+            scale = Math.min(scaleX, scaleY, 1.5);
+            panX = (wrapper.clientWidth - plansza.clientWidth * scale) / 2;
+            panY = (wrapper.clientHeight - plansza.clientHeight * scale) / 2;
+            updateTransform();
+        }
+        
+        // Pan (przesuwanie)
+        mapaContainer.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.krzeslo-map') || e.target.closest('.zoom-controls')) return;
+            isPanning = true;
+            startPanX = e.clientX - panX;
+            startPanY = e.clientY - panY;
+            mapaContainer.style.cursor = 'grabbing';
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isPanning) return;
+            panX = e.clientX - startPanX;
+            panY = e.clientY - startPanY;
+            updateTransform();
+        });
+        
+        document.addEventListener('mouseup', () => {
+            isPanning = false;
+            mapaContainer.style.cursor = 'grab';
+        });
+        
+        // Zoom kółkiem myszy
+        mapaContainer.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.85 : 1.15;
+            const newScale = Math.max(0.2, Math.min(4, scale * delta));
+            
+            const rect = mapaContainer.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            panX = mouseX - (mouseX - panX) * (newScale / scale);
+            panY = mouseY - (mouseY - panY) * (newScale / scale);
+            scale = newScale;
+            
+            updateTransform();
+        });
+        
+        // Inicjalizacja
         if (mojeImie) {
             pokazApp();
             socket.emit('zaloguj', {imie: mojeImie});
@@ -966,6 +1288,9 @@ def kelner():
         }
         
         function wyloguj() {
+            if (wybraneKrzeslo) {
+                socket.emit('zwolnij_krzeslo', {krzeslo_id: wybraneKrzeslo.id, kelner: mojeImie});
+            }
             localStorage.removeItem('kelnerImie');
             socket.emit('wyloguj', {imie: mojeImie});
             location.reload();
@@ -976,6 +1301,7 @@ def kelner():
             document.getElementById('appScreen').style.display = 'flex';
             document.getElementById('kelnerName').textContent = mojeImie;
             odswiez();
+            setTimeout(fitToScreen, 100);
         }
         
         function odswiez() {
@@ -985,89 +1311,166 @@ def kelner():
             ]).then(([sala, menu]) => {
                 salaData = sala;
                 menuData = menu;
-                renderKrzesla();
+                renderMapa();
                 if (wybraneKrzeslo) {
-                    const k = sala.krzesla.find(x => x.id === wybraneKrzeslo.id);
-                    if (k) pokazPanel(k);
+                    const aktualne = sala.krzesla.find(k => k.id === wybraneKrzeslo.id);
+                    if (aktualne) {
+                        wybraneKrzeslo = aktualne;
+                        renderPanel();
+                    }
                 }
             });
         }
         
-        function renderKrzesla() {
-            const div = document.getElementById('krzeslaLista');
-            div.innerHTML = '';
+        function renderMapa() {
+            const plansza = document.getElementById('planszaZoom');
+            plansza.innerHTML = '';
             
+            // Stoliki
+            salaData.stoliki.forEach(s => {
+                const div = document.createElement('div');
+                div.className = 'stolik-map';
+                div.style.width = (s.szerokosc * 50) + 'px';
+                div.style.height = (s.dlugosc * 50) + 'px';
+                div.style.left = s.poz_x + 'px';
+                div.style.top = s.poz_y + 'px';
+                div.style.transform = `rotate(${s.kat}deg)`;
+                div.style.background = s.kolor;
+                div.textContent = s.nazwa;
+                plansza.appendChild(div);
+            });
+            
+            // Krzesła
             salaData.krzesla.forEach(k => {
-                const maZam = k.zamowienia.length > 0;
-                const suma = k.zamowienia.reduce((s, z) => s + z.ilosc, 0);
+                const btn = document.createElement('button');
+                const jestZajete = zajeteKrzesla[k.id] && zajeteKrzesla[k.id] !== mojeImie;
+                const mojeZajete = zajeteKrzesla[k.id] === mojeImie;
+                const sumaZam = k.zamowienia.reduce((s, z) => s + z.ilosc, 0);
                 
-                const item = document.createElement('div');
-                item.className = 'krzeslo-item' + 
-                    (k.id === (wybraneKrzeslo?.id) ? ' wybrane' : '') +
-                    (maZam ? ' ma-zamowienie' : '');
-                
-                item.innerHTML = `
-                    <div class="krzeslo-header">
-                        <span class="krzeslo-nazwa">${k.nazwa}</span>
-                        ${maZam ? `<span style="background:#ff6b6b; color:white; padding:2px 8px; border-radius:10px; font-size:0.8rem;">${suma}</span>` : ''}
-                    </div>
-                    <div class="krzeslo-id">${k.id}</div>
-                    ${maZam ? `<div class="zamowienia-podglad">${k.zamowienia.slice(0,2).map(z => z.danie).join(', ')}${k.zamowienia.length > 2 ? '...' : ''}</div>` : ''}
+                btn.className = 'krzeslo-map' + 
+                    (mojeZajete ? ' wybrane' : '') +
+                    (jestZajete ? ' zajete' : '') +
+                    (sumaZam > 0 ? ' ma-zamowienie' : '');
+                btn.id = 'krz_' + k.id;
+                btn.style.left = k.poz_x + 'px';
+                btn.style.top = k.poz_y + 'px';
+                btn.style.transform = `rotate(${k.kat}deg)`;
+                btn.style.backgroundColor = k.kolor;
+                btn.innerHTML = `
+                    ${k.nazwa}
+                    ${sumaZam > 0 ? `<span class="licznik">${sumaZam}</span>` : ''}
                 `;
                 
-                item.onclick = () => {
-                    wybraneKrzeslo = k;
-                    renderKrzesla();
-                    pokazPanel(k);
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    kliknijKrzeslo(k);
                 };
                 
-                div.appendChild(item);
+                plansza.appendChild(btn);
             });
         }
         
-        function pokazPanel(krzeslo) {
-            const panel = document.getElementById('zamowieniaPanel');
+        function kliknijKrzeslo(krzeslo) {
+            const jestZajete = zajeteKrzesla[krzeslo.id] && zajeteKrzesla[krzeslo.id] !== mojeImie;
             
-            // Grupuj zamówienia
+            if (jestZajete) {
+                wybraneKrzeslo = krzeslo;
+                renderPanel(true);
+                document.getElementById('zamowieniaPanel').classList.remove('ukryty');
+                return;
+            }
+            
+            if (wybraneKrzeslo && wybraneKrzeslo.id !== krzeslo.id) {
+                socket.emit('zwolnij_krzeslo', {krzeslo_id: wybraneKrzeslo.id, kelner: mojeImie});
+            }
+            
+            wybraneKrzeslo = krzeslo;
+            socket.emit('zajmij_krzeslo', {krzeslo_id: krzeslo.id, kelner: mojeImie});
+            
+            document.getElementById('zamowieniaPanel').classList.remove('ukryty');
+            renderMapa();
+            renderPanel(false);
+        }
+        
+        function renderPanel(tylkoPodglad = false) {
+            const panel = document.getElementById('zamowieniaContent');
+            const k = wybraneKrzeslo;
+            const jestZajete = zajeteKrzesla[k.id] && zajeteKrzesla[k.id] !== mojeImie;
+            const mojeZajete = zajeteKrzesla[k.id] === mojeImie;
+            
+            let statusText = '✅ Wolne - kliknij aby zająć';
+            let statusClass = 'wolne';
+            if (mojeZajete) {
+                statusText = '🔶 Twoje - możesz dodawać zamówienia';
+                statusClass = 'twoje';
+            } else if (jestZajete) {
+                statusText = `🔒 Zajęte przez: ${zajeteKrzesla[k.id]}`;
+                statusClass = 'zajete';
+            }
+            
             const grupy = {};
-            krzeslo.zamowienia.forEach(z => {
-                if (!grupy[z.danie]) grupy[z.danie] = 0;
-                grupy[z.danie] += z.ilosc;
+            k.zamowienia.forEach(z => {
+                if (!grupy[z.danie]) grupy[z.danie] = {ilosc: 0, items: []};
+                grupy[z.danie].ilosc += z.ilosc;
+                grupy[z.danie].items.push(z);
             });
             
             let historiaHTML = '';
-            if (krzeslo.zamowienia.length > 0) {
+            if (k.zamowienia.length > 0) {
                 historiaHTML = `
                     <div class="historia-box">
-                        <h3>📝 Zamówienia na tym krześle:</h3>
-                        ${Object.entries(grupy).map(([danie, ilosc]) => `
-                            <div class="zam-historia">
-                                <span><strong>${danie}</strong> × ${ilosc}</span>
+                        <h4>📝 Zamówienia (${k.zamowienia.length} pozycji):</h4>
+                        ${Object.entries(grupy).map(([danie, info]) => `
+                            <div class="zam-item">
+                                <div>
+                                    <strong>${danie}</strong> × ${info.ilosc}
+                                    <br><small style="color:#888;">${info.items[0].kelner}</small>
+                                </div>
+                                ${!tylkoPodglad ? `
+                                    <button onclick="usunZamowienie('${info.items[0].id}')">Usuń</button>
+                                ` : '<span style="color:#ff6b6b; font-size:1.2rem;">🔒</span>'}
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
+            let menuHTML = '';
+            if (!tylkoPodglad) {
+                menuHTML = `
+                    <div class="menu-grid">
+                        ${menuData.map(d => `
+                            <button class="danie-btn" 
+                                    style="background:${d.kolor};"
+                                    onclick="dodajZamowienie('${k.id}', '${d.nazwa}')"
+                                    ${d.ilosc <= 0 ? 'disabled' : ''}>
+                                ${d.nazwa}
+                                <span class="stan">${d.ilosc} szt.</span>
+                            </button>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                menuHTML = `
+                    <div class="hint-box">
+                        <p>🔒 <strong>Tryb podglądu</strong><br>To krzesło jest aktualnie obsługiwane przez innego kelnera. Możesz tylko przeglądać zamówienia.</p>
+                    </div>
+                `;
+            }
+            
             panel.innerHTML = `
                 <div class="krzeslo-info">
-                    <h2>${krzeslo.nazwa}</h2>
-                    <div class="id">ID: ${krzeslo.id}</div>
+                    <h3>🪑 ${k.nazwa}</h3>
+                    <div class="id">ID: ${k.id}</div>
+                    <span class="status ${statusClass}">${statusText}</span>
                 </div>
                 
-                <div class="menu-grid">
-                    ${menuData.map(d => `
-                        <button class="danie-btn" 
-                                style="background:${d.kolor};"
-                                onclick="dodajZamowienie('${krzeslo.id}', '${d.nazwa}')"
-                                ${d.ilosc <= 0 ? 'disabled' : ''}>
-                            ${d.nazwa}
-                            <span class="ilosc">${d.ilosc} szt.</span>
-                        </button>
-                    `).join('')}
-                </div>
-                
+                ${menuHTML}
                 ${historiaHTML}
+                
+                <button class="btn-zamknij ${tylkoPodglad ? 'podglad' : 'edycja'}" onclick="zamknijPanel()">
+                    ${tylkoPodglad ? '✓ Zamknij podgląd' : '✓ Zamknij i zwolnij krzesło'}
+                </button>
             `;
         }
         
@@ -1084,12 +1487,46 @@ def kelner():
                 if (resp.ok) {
                     odswiez();
                 } else {
-                    alert('Błąd: ' + (resp.error || 'Nieznany błąd'));
+                    alert('Błąd: ' + (resp.error || 'Brak w magazynie'));
                 }
             });
         }
         
+        function usunZamowienie(zamId) {
+            if (!confirm('Usunąć to zamówienie?')) return;
+            fetch('/api/zamowienie/usun/' + zamId, {method: 'DELETE'})
+                .then(() => odswiez());
+        }
+        
+        function zamknijPanel() {
+            if (wybraneKrzeslo) {
+                socket.emit('zwolnij_krzeslo', {krzeslo_id: wybraneKrzeslo.id, kelner: mojeImie});
+            }
+            wybraneKrzeslo = null;
+            document.getElementById('zamowieniaPanel').classList.add('ukryty');
+            renderMapa();
+        }
+        
+        // Socket events
         socket.on('aktualizacja', odswiez);
+        
+        socket.on('krzeslo_zajete', (data) => {
+            zajeteKrzesla[data.krzeslo_id] = data.kelner;
+            renderMapa();
+            if (wybraneKrzeslo && wybraneKrzeslo.id === data.krzeslo_id && data.kelner !== mojeImie) {
+                renderPanel(true);
+            }
+        });
+        
+        socket.on('krzeslo_wolne', (data) => {
+            delete zajeteKrzesla[data.krzeslo_id];
+            renderMapa();
+        });
+        
+        socket.on('zajete_krzesla', (data) => {
+            zajeteKrzesla = data || {};
+            renderMapa();
+        });
     </script>
 </body>
 </html>
@@ -1219,6 +1656,55 @@ def handle_wyloguj(data):
     c.execute("UPDATE kelnerzy SET aktywny=0 WHERE imie=?", (data['imie'],))
     conn.commit()
     conn.close()
+
+# Globalny słownik zajętych krzeseł
+zajete_krzesla = {}
+
+@socketio.on('zajmij_krzeslo')
+def handle_zajmij(data):
+    krzeslo_id = data['krzeslo_id']
+    kelner = data['kelner']
+    
+    if krzeslo_id in zajete_krzesla and zajete_krzesla[krzeslo_id] != kelner:
+        emit('blad', {'msg': 'Krzesło zajęte'})
+        return
+    
+    zajete_krzesla[krzeslo_id] = kelner
+    emit('krzeslo_zajete', {'krzeslo_id': krzeslo_id, 'kelner': kelner}, broadcast=True)
+
+@socketio.on('zwolnij_krzeslo')
+def handle_zwolnij(data):
+    krzeslo_id = data['krzeslo_id']
+    kelner = data['kelner']
+    
+    if krzeslo_id in zajete_krzesla and zajete_krzesla[krzeslo_id] == kelner:
+        del zajete_krzesla[krzeslo_id]
+        emit('krzeslo_wolne', {'krzeslo_id': krzeslo_id}, broadcast=True)
+
+@socketio.on('connect')
+def handle_connect():
+    emit('zajete_krzesla', zajete_krzesla)
+
+# Dodaj endpoint usuwania zamówienia
+@app.route('/api/zamowienie/usun/<int:id>', methods=['DELETE'])
+def usun_zamowienie(id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # Pobierz info o zamówieniu
+    c.execute("SELECT danie_nazwa, ilosc FROM krzeslo_zamowienia WHERE id=?", (id,))
+    zam = c.fetchone()
+    
+    if zam:
+        # Zwróć do menu
+        c.execute("UPDATE menu SET ilosc = ilosc + ? WHERE nazwa=?", (zam[1], zam[0]))
+        # Usuń zamówienie
+        c.execute("DELETE FROM krzeslo_zamowienia WHERE id=?", (id,))
+        conn.commit()
+    
+    conn.close()
+    socketio.emit('aktualizacja')
+    return jsonify({'ok': True})
 
 if __name__ == '__main__':
     init_db()
