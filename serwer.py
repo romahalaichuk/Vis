@@ -1784,16 +1784,28 @@ def handle_connect():
 
 if __name__ == '__main__':
     init_db()
-    
-    IP = get_ip()
-    PORT = 5000
-    
-    print(f"\n{'='*60}")
-    print(f"🍽️  SYSTEM ZAMÓWIEŃ - PLANSZA SALI")
-    print(f"{'='*60}")
-    print(f"\n🖥️  Admin (plansza): http://{IP}:{PORT}")
-    print(f"📱 Kelner: http://{IP}:{PORT}/kelner")
-    print(f"{'='*60}\n")
-    
-    threading.Timer(2.0, lambda: webbrowser.open(f'http://127.0.0.1:{PORT}')).start()
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=False)
+
+    import os
+
+    # Jeśli Render ustawi PORT → działamy w trybie produkcyjnym
+    if "PORT" in os.environ:
+        PORT = int(os.environ["PORT"])
+        print("Running on Render, port:", PORT)
+
+        # Render NIE MA przeglądarki → pomijamy webbrowser.open
+        socketio.run(app, host='0.0.0.0', port=PORT, debug=False)
+
+    else:
+        # Tryb lokalny – wszystko zostaje tak jak masz
+        IP = get_ip()
+        PORT = 5000
+
+        print(f"\n{'='*60}")
+        print(f"🍽️  SYSTEM ZAMÓWIEŃ - PLANSZA SALI")
+        print(f"{'='*60}")
+        print(f"\n🖥️  Admin (plansza): http://{IP}:{PORT}")
+        print(f"📱 Kelner: http://{IP}:{PORT}/kelner")
+        print(f"{'='*60}\n")
+
+        threading.Timer(2.0, lambda: webbrowser.open(f'http://127.0.0.1:{PORT}')).start()
+        socketio.run(app, host='0.0.0.0', port=PORT, debug=False)
