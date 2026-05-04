@@ -93,7 +93,7 @@ def index():
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
+            background: #c0c0d2;
             color: #eee;
             padding: 20px;
             min-height: 100vh;
@@ -228,6 +228,23 @@ def index():
             border-radius: 20px;
             font-weight: bold;
         }
+      .plansza-container {
+    background: #0f3460;
+    border-radius: 15px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: 950 / 650;     /* zachowuje proporcje Twojego szkicu */
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+#planszaSVG {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: transparent;
+}
         
         /* PLANSZA */
         .plansza-container {
@@ -238,18 +255,18 @@ def index():
             overflow: auto;
             min-height: 500px;
         }
-        .plansza {
-            width: 800px;
-            height: 600px;
-            background: 
-                linear-gradient(rgba(78, 205, 196, 0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(78, 205, 196, 0.1) 1px, transparent 1px);
-            background-size: 20px 20px;
-            background-color: #1a1a2e;
-            border: 2px solid #e94560;
-            position: relative;
-            margin: 0 auto;
-        }
+      .plansza {
+    width: 475px;
+    height: 550px;
+    margin: 0 auto;                /* centruj, usuń margin-right */
+    background: #1a1a2e;
+    position: relative;
+    overflow: hidden;
+    border: 8px solid #e94560;     /* grubszy border */
+    border-radius: 12px;           /* zaokrąglone rogi dla lepszego wyglądu */
+}
+
+/* usuń całkowicie clip-path z .plansza i .sala-shape */
         
         /* Stolik na planszy */
         .stolik-obiekt {
@@ -271,8 +288,8 @@ def index():
         }
         .stolik-obiekt .obrot {
             position: absolute;
-            width: 55px;
-            height: 55px;
+            width: 20px;
+            height: 20px;
             background: #ffa500;
             border-radius: 50%;
             cursor: grab;
@@ -448,19 +465,74 @@ def index():
             </div>
         </div>
         
-        <!-- PRAWA KOLUMNA - PLANSZA -->
-        <div>
-            <div class="panel">
-                <h2>🗺️ Plansza Sali (przeciągaj i obracaj)</h2>
-                <div class="plansza-container">
-                    <div class="plansza" id="plansza"></div>
-                </div>
-                <p style="color:#888; margin-top:10px; font-size:0.9rem;">
-                    💡 Stoliki: przeciągaj, obracaj pomarańczowym kółkiem | Krzesła: przeciągaj, mają własne ID i zamówienia
-                </p>
-            </div>
-        </div>
+     <!-- PRAWA KOLUMNA - PLANSZA -->
+<div>
+    <div class="panel">
+        <h2>🗺️ Plansza Sali (przeciągaj i obracaj)</h2>
+        <div class="plansza-container">
+    <svg id="planszaSVG" viewBox="0 0 950 650" style="width:100%; height:100%; display:block;">
+        <!-- Tło i obrys sali w kształcie L -->
+        <defs>
+            <clipPath id="salaClip">
+                <path d="M 0 0 L 950 227.5 Z" />
+
+            </clipPath>
+        </defs>
+
+        <!-- Tło wypełniające (clipowane do kształtu L) -->
+        <rect width="950" height="650" fill="#1a1a2e" clip-path="url(#salaClip)" />
+
+        <!-- Czerwona ramka/obrys (też clipowana) -->
+        <path 
+            d="M 0 0 H 950 V 227.5 H 617.5 V 650 H 0 Z"
+            fill="none"
+            stroke="#e94560"
+            stroke-width="16"
+            stroke-linejoin="round"
+            clip-path="url(#salaClip)"
+        />
+
+        <!-- Miejsce na dynamiczne stoliki i krzesła -->
+    </svg>
+</div>
+    <svg id="planszaSVG" viewBox="0 0 950 650" preserveAspectRatio="xMidYMid meet">
+        <!-- Tło i kształt sali -->
+        <defs>
+            <clipPath id="sala-shape">
+                <path d="
+                    M 0,0 
+                    L 950,0 
+                    L 950,227.5    
+                    L 617.5,227.5   
+                    L 617.5,650 
+                    L 0,650 
+                    Z
+                  "/>
+            </clipPath>
+        </defs>
+
+        
+        <rect width="100%" height="100%" fill="#1a1a2e" clip-path="url(#sala-shape)"/>
+
+       
+        <path d="
+            M 0,0 
+            L 950,0 
+            L 950,227.5 
+            L 617.5,227.5 
+            L 617.5,650 
+            L 0,650 
+            Z
+        " fill="none" stroke="#e94560" stroke-width="16" stroke-linejoin="round" />
+
+      
+    </svg>
+</div>
+        <p style="color:#888; margin-top:10px; font-size:0.9rem;">
+            💡 Stoliki: przeciągaj, obracaj pomarańczowym kółkiem | Krzesła: przeciągaj, mają własne ID i zamówienia
+        </p>
     </div>
+</div>
 
     <script>
         const socket = io();
@@ -510,60 +582,67 @@ def index():
             renderPlansza(data.sala);
         }
         
-        function renderPlansza(sala) {
-            const plansza = document.getElementById('plansza');
-            plansza.innerHTML = '';
-            
-            // Stoliki
-            sala.stoliki.forEach(s => {
-                const div = document.createElement('div');
-                div.className = 'stolik-obiekt';
-                div.id = s.id;
-                div.style.width = (s.szerokosc * SCALE) + 'px';
-                div.style.height = (s.dlugosc * SCALE) + 'px';
-                div.style.left = s.poz_x + 'px';
-                div.style.top = s.poz_y + 'px';
-                div.style.transform = `rotate(${s.kat}deg)`;
-                div.style.background = s.kolor;
-                div.innerHTML = `
-                    ${s.nazwa}
-                    <div class="obrot" onmousedown="startObrot(event, '${s.id}')">↻</div>
-                    <div class="usun" onclick="usunStolik('${s.id}', event)">×</div>
-                `;
-                div.onmousedown = (e) => startDrag(e, s.id, 'stolik');
-                plansza.appendChild(div);
-            });
-            
-            // Krzesła
-            sala.krzesla.forEach(k => {
-                const div = document.createElement('div');
-                div.className = 'krzeslo-obiekt' + (k.zamowienia.length > 0 ? ' ma-zamowienie' : '');
-                div.id = k.id;
-                div.style.left = k.poz_x + 'px';
-                div.style.top = k.poz_y + 'px';
-                div.style.transform = `rotate(${k.kat}deg)`;
-                div.style.background = k.kolor;
-                
-                // Tooltip zamówień
-                let tooltipHTML = '<div class="zamowienia-tooltip"><h5>Zamówienia:</h5>';
-                if (k.zamowienia.length === 0) {
-                    tooltipHTML += '<div>Brak zamówień</div>';
-                } else {
-                    k.zamowienia.forEach(z => {
-                        tooltipHTML += `<div>${z.danie} x${z.ilosc} (${z.kelner})</div>`;
-                    });
-                }
-                tooltipHTML += '</div>';
-                
-                div.innerHTML = `
-                    ${k.nazwa}
-                    ${tooltipHTML}
-                    <div class="usun" onclick="usunKrzeslo('${k.id}', event)">×</div>
-                `;
-                div.onmousedown = (e) => startDrag(e, k.id, 'krzeslo');
-                plansza.appendChild(div);
-            });
+   function renderPlansza(sala) {
+    const svg = document.getElementById('planszaSVG');
+    if (!svg) {
+        console.error("Nie znaleziono elementu #planszaSVG w DOM");
+        return;
+    }
+
+    // Zachowujemy tylko <defs> i jego zawartość + ewentualne stałe elementy
+    const defs = svg.querySelector('defs');
+    const stałeElementy = Array.from(svg.children).filter(el => 
+        el.tagName !== 'defs' && 
+        !el.classList.contains('dynamic')
+    );
+
+    // Czyścimy tylko dynamicznie dodane elementy (unikamy usuwania clip-path i tła)
+    Array.from(svg.children).forEach(child => {
+        if (!child.classList.contains('permanent') && child.tagName !== 'defs') {
+            svg.removeChild(child);
         }
+    });
+
+    // Przywracamy stałe elementy (tło, obrys)
+    if (defs) svg.appendChild(defs);
+    stałeElementy.forEach(el => svg.appendChild(el));
+
+    // Ustawiamy wysokość (opcjonalnie – lepiej robić to w CSS)
+    if (sala?.wymiary?.wys) {
+        svg.style.height = sala.wymiary.wys + "px";
+    }
+
+    // Stoliki
+    (sala.stoliki || []).forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'stolik-obiekt dynamic';  // ← dodajemy klasę, żeby wiedzieć, co usuwać
+        div.id = 'stolik-' + s.id;
+        div.style.width  = (s.szerokosc * SCALE) + 'px';
+        div.style.height = (s.dlugosc  * SCALE) + 'px';
+        div.style.left   = s.poz_x + 'px';
+        div.style.top    = s.poz_y + 'px';
+        div.style.transform = `rotate(${s.kat || 0}deg)`;
+        div.style.backgroundColor = s.kolor || '#4ecdc4';
+        
+        div.innerHTML = `
+            ${s.nazwa || 'Stolik'}
+            <div class="obrot" onmousedown="startObrot(event, '${s.id}')">↻</div>
+            <div class="usun" onclick="usunStolik('${s.id}', event)">×</div>
+        `;
+        
+        div.onmousedown = (e) => startDrag(e, s.id, 'stolik');
+        svg.appendChild(div);
+    });
+
+    // Krzesła – analogicznie
+    (sala.krzesla || []).forEach(k => {
+        const div = document.createElement('div');
+        div.className = 'krzeslo-obiekt dynamic' + (k.zamowienia?.length > 0 ? ' ma-zamowienie' : '');
+        div.id = 'krzeslo-' + k.id;
+        // reszta jak wcześniej...
+        svg.appendChild(div);
+    });
+}
         
         // Drag & Drop
         function startDrag(e, id, typ) {
@@ -580,20 +659,23 @@ def index():
             document.onmouseup = stopDrag;
         }
         
-        function drag(e) {
-            if (!przeciagany) return;
-            
-            const parent = document.getElementById('plansza').getBoundingClientRect();
-            let x = e.clientX - parent.left - offsetX;
-            let y = e.clientY - parent.top - offsetY;
-            
-            // Granice
-            x = Math.max(0, Math.min(x, 800 - przeciagany.el.offsetWidth));
-            y = Math.max(0, Math.min(y, 600 - przeciagany.el.offsetHeight));
-            
-            przeciagany.el.style.left = x + 'px';
-            przeciagany.el.style.top = y + 'px';
-        }
+       function drag(e) {
+    if (!przeciagany) return;
+    
+    const parent = document.getElementById('plansza').getBoundingClientRect();
+    let x = e.clientX - parent.left - offsetX;
+    let y = e.clientY - parent.top - offsetY;
+
+    const el = przeciagany.el;
+    const w = el.parentElement.clientWidth;
+    const h = el.parentElement.clientHeight;
+
+    x = Math.max(0, Math.min(x, w - el.offsetWidth));
+    y = Math.max(0, Math.min(y, h - el.offsetHeight));
+
+    el.style.left = x + 'px';
+    el.style.top  = y + 'px';
+}
         
         function stopDrag() {
             if (przeciagany) {
@@ -821,30 +903,27 @@ def kelner():
             overflow: hidden;
             background: #0a0a1a;
         }
-        .mapa-container {
-            width: 100%;
-            height: 100%;
-            position: relative;
-            cursor: grab;
-        }
+      .mapa-container {
+    touch-action: pinch-zoom pan-x pan-y;  
+    overscroll-behavior: none;
+}
         .mapa-container:active {
             cursor: grabbing;
         }
-        .mapa-content {
-            position: absolute;
-            transform-origin: 0 0;
-            transition: transform 0.1s ease-out;
-        }
-        .plansza-zoom {
-            position: relative;
-            background: 
-                linear-gradient(rgba(78, 205, 196, 0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(78, 205, 196, 0.1) 1px, transparent 1px);
-            background-size: 20px 20px;
-            background-color: #1a1a2e;
-            border: 3px solid #e94560;
-            box-shadow: 0 0 50px rgba(0,0,0,0.5);
-        }
+       .mapa-content {
+    will-change: transform;   /* płynniej */
+}
+@media (pointer: coarse) {  /* telefony, tablety */
+    .zoom-controls { display: none !important; }
+}
+      .plansza-zoom {
+    width: 475px !important;
+    height: 550px !important;
+    0px 550px
+    
+    overflow: hidden;   /* ważne */
+    /* reszta Twoich stylów */
+}
         
         /* Kontrolki zoom */
         .zoom-controls {
@@ -1021,6 +1100,22 @@ def kelner():
             gap: 12px;
             margin-bottom: 25px;
         }
+        .plansza, .plansza-zoom {
+    width: 475px;
+    height: 550px;
+    position: relative;
+    background: #1a1a2e;
+    border: 4px solid #e94560;
+    overflow: hidden;
+}
+
+.sala-shape {
+    position: absolute;
+    inset: 0;
+ 
+    background: inherit;
+    pointer-events: none;   /* ważne – nie blokuje klików na stoliki/krzesła */
+}
         .danie-btn {
             padding: 18px;
             border: none;
@@ -1152,11 +1247,11 @@ def kelner():
         <div class="main-content">
             <!-- Mapa sali z zoomem -->
             <div class="mapa-wrapper" id="mapaWrapper">
-                <div class="zoom-info" id="zoomInfo">🔍 100% | Przeciągaj aby przesunąć • Scroll aby przybliżyć</div>
+             
                 
                 <div class="mapa-container" id="mapaContainer">
                     <div class="mapa-content" id="mapaContent">
-                        <div class="plansza-zoom" id="planszaZoom" style="width: 800px; height: 600px;">
+                       <div class="plansza-zoom" id="planszaZoom">
                             <!-- Dynamicznie renderowane -->
                         </div>
                     </div>
@@ -1255,22 +1350,13 @@ def kelner():
             mapaContainer.style.cursor = 'grab';
         });
         
-        // Zoom kółkiem myszy
-        mapaContainer.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? 0.85 : 1.15;
-            const newScale = Math.max(0.2, Math.min(4, scale * delta));
-            
-            const rect = mapaContainer.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-            
-            panX = mouseX - (mouseX - panX) * (newScale / scale);
-            panY = mouseY - (mouseY - panY) * (newScale / scale);
-            scale = newScale;
-            
-            updateTransform();
-        });
+       mapaContainer.addEventListener('wheel', (e) => {
+    if (!('ontouchstart' in window)) {  // tylko myszka
+        e.preventDefault();
+        // Twój kod zoomu myszką
+    }
+    // na mobile niech przeglądarka robi swoje
+});
         
         // Inicjalizacja
         if (mojeImie) {
@@ -1323,9 +1409,13 @@ def kelner():
         }
         
         function renderMapa() {
-            const plansza = document.getElementById('planszaZoom');
-            plansza.innerHTML = '';
-            
+
+    const plansza = document.getElementById('planszaZoom');
+
+  
+    plansza.style.height = salaData.wymiary.wys + "px";
+
+    plansza.innerHTML = '';
             // Stoliki
             salaData.stoliki.forEach(s => {
                 const div = document.createElement('div');
