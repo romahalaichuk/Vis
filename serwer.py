@@ -465,35 +465,28 @@ def index():
             </div>
         </div>
         
-     <!-- PRAWA KOLUMNA - PLANSZA -->
+<!-- PRAWA KOLUMNA - PLANSZA -->
 <div>
     <div class="panel">
         <h2>🗺️ Plansza Sali (przeciągaj i obracaj)</h2>
-        <div class="plansza-container">
-    <svg id="planszaSVG" viewBox="0 0 950 650" style="width:100%; height:100%; display:block;">
-        <!-- Tło i obrys sali w kształcie L -->
-        <defs>
-            <clipPath id="salaClip">
-                <path d="M 0 0 L 950 227.5 Z" />
-
-            </clipPath>
-        </defs>
-
-        <!-- Tło wypełniające (clipowane do kształtu L) -->
-        <rect width="950" height="650" fill="#1a1a2e" clip-path="url(#salaClip)" />
-
-        <!-- Czerwona ramka/obrys (też clipowana) -->
-        <path 
-            d="M 0 0 H 950 V 227.5 H 617.5 V 650 H 0 Z"
-            fill="none"
-            stroke="#e94560"
-            stroke-width="16"
-            stroke-linejoin="round"
-            clip-path="url(#salaClip)"
-        />
-
-        <!-- Miejsce na dynamiczne stoliki i krzesła -->
-    </svg>
+        <div class="plansza-container" id="planszaContainer" style="position: relative; min-height: 500px; overflow: hidden;">
+            <!-- SVG jako tło -->
+            <svg id="planszaSVG" viewBox="0 0 950 650" style="width:100%; height:100%; position:absolute; top:0; left:0; z-index:1;">
+                <defs>
+                    <clipPath id="salaClip">
+                        <path d="M 0 0 H 950 V 227.5 H 617.5 V 650 H 0 Z" />
+                    </clipPath>
+                </defs>
+                <rect width="950" height="650" fill="#1a1a2e" clip-path="url(#salaClip)" />
+                <path d="M 0 0 H 950 V 227.5 H 617.5 V 650 H 0 Z" fill="none" stroke="#e94560" stroke-width="16" stroke-linejoin="round" />
+            </svg>
+            <!-- Tu będą stoliki i krzesła (HTML) -->
+            <div id="planszaOverlay" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:2;"></div>
+        </div>
+        <p style="color:#888; margin-top:10px; font-size:0.9rem;">
+            💡 Stoliki: przeciągaj, obracaj pomarańczowym kółkiem | Krzesła: przeciągaj, mają własne ID i zamówienia
+        </p>
+    </div>
 </div>
     <svg id="planszaSVG" viewBox="0 0 950 650" preserveAspectRatio="xMidYMid meet">
         <!-- Tło i kształt sali -->
@@ -583,39 +576,20 @@ def index():
         }
         
    function renderPlansza(sala) {
-    const svg = document.getElementById('planszaSVG');
-    if (!svg) {
-        console.error("Nie znaleziono elementu #planszaSVG w DOM");
+    const overlay = document.getElementById('planszaOverlay');
+    if (!overlay) {
+        console.error("Nie znaleziono #planszaOverlay");
         return;
     }
-
-    // Zachowujemy tylko <defs> i jego zawartość + ewentualne stałe elementy
-    const defs = svg.querySelector('defs');
-    const stałeElementy = Array.from(svg.children).filter(el => 
-        el.tagName !== 'defs' && 
-        !el.classList.contains('dynamic')
-    );
-
-    // Czyścimy tylko dynamicznie dodane elementy (unikamy usuwania clip-path i tła)
-    Array.from(svg.children).forEach(child => {
-        if (!child.classList.contains('permanent') && child.tagName !== 'defs') {
-            svg.removeChild(child);
-        }
-    });
-
-    // Przywracamy stałe elementy (tło, obrys)
-    if (defs) svg.appendChild(defs);
-    stałeElementy.forEach(el => svg.appendChild(el));
-
-    // Ustawiamy wysokość (opcjonalnie – lepiej robić to w CSS)
-    if (sala?.wymiary?.wys) {
-        svg.style.height = sala.wymiary.wys + "px";
-    }
+    overlay.innerHTML = ''; // czyścimy stare
+    
+    // Skala: 1m = 50px (taka sama jak w CSS)
+    const SCALE = 50;
 
     // Stoliki
     (sala.stoliki || []).forEach(s => {
         const div = document.createElement('div');
-        div.className = 'stolik-obiekt dynamic';  // ← dodajemy klasę, żeby wiedzieć, co usuwać
+        div.className = 'stolik-obiekt';
         div.id = 'stolik-' + s.id;
         div.style.width  = (s.szerokosc * SCALE) + 'px';
         div.style.height = (s.dlugosc  * SCALE) + 'px';
@@ -623,6 +597,7 @@ def index():
         div.style.top    = s.poz_y + 'px';
         div.style.transform = `rotate(${s.kat || 0}deg)`;
         div.style.backgroundColor = s.kolor || '#4ecdc4';
+        div.style.position = 'absolute';
         
         div.innerHTML = `
             ${s.nazwa || 'Stolik'}
@@ -630,17 +605,32 @@ def index():
             <div class="usun" onclick="usunStolik('${s.id}', event)">×</div>
         `;
         
-        div.onmousedown = (e) => startDrag(e, s.id, 'stolik');
-        svg.appendChild(div);
+        div.onmousedown = (e) => startDrag(e, 'stolik-' + s.id, 'stolik');
+        overlay.appendChild(div);
     });
 
-    // Krzesła – analogicznie
+    // Krzesła
     (sala.krzesla || []).forEach(k => {
         const div = document.createElement('div');
-        div.className = 'krzeslo-obiekt dynamic' + (k.zamowienia?.length > 0 ? ' ma-zamowienie' : '');
+        div.className = 'krzeslo-obiekt' + (k.zamowienia?.length > 0 ? ' ma-zamowienie' : '');
         div.id = 'krzeslo-' + k.id;
-        // reszta jak wcześniej...
-        svg.appendChild(div);
+        div.style.left = k.poz_x + 'px';
+        div.style.top  = k.poz_y + 'px';
+        div.style.transform = `rotate(${k.kat || 0}deg)`;
+        div.style.backgroundColor = k.kolor || '#ffa500';
+        div.style.position = 'absolute';
+        
+        // Tooltip z zamówieniami
+        let tooltipHTML = '';
+        if (k.zamowienia && k.zamowienia.length > 0) {
+            tooltipHTML = `<div class="zamowienia-tooltip"><h5>Zamówienia:</h5>` +
+                k.zamowienia.map(z => `<div>${z.danie} ×${z.ilosc}</div>`).join('') +
+                `</div>`;
+        }
+        
+        div.innerHTML = `${k.nazwa}${tooltipHTML}<div class="usun" onclick="usunKrzeslo('${k.id}', event)">×</div>`;
+        div.onmousedown = (e) => startDrag(e, 'krzeslo-' + k.id, 'krzeslo');
+        overlay.appendChild(div);
     });
 }
         
@@ -659,19 +649,18 @@ def index():
             document.onmouseup = stopDrag;
         }
         
-       function drag(e) {
+   function drag(e) {
     if (!przeciagany) return;
     
-    const parent = document.getElementById('plansza').getBoundingClientRect();
+    const parent = document.getElementById('planszaContainer').getBoundingClientRect();
     let x = e.clientX - parent.left - offsetX;
     let y = e.clientY - parent.top - offsetY;
 
     const el = przeciagany.el;
-    const w = el.parentElement.clientWidth;
-    const h = el.parentElement.clientHeight;
-
-    x = Math.max(0, Math.min(x, w - el.offsetWidth));
-    y = Math.max(0, Math.min(y, h - el.offsetHeight));
+    
+    // Ograniczenia do kontenera
+    x = Math.max(0, Math.min(x, parent.width - el.offsetWidth));
+    y = Math.max(0, Math.min(y, parent.height - el.offsetHeight));
 
     el.style.left = x + 'px';
     el.style.top  = y + 'px';
@@ -1781,13 +1770,13 @@ def handle_pobierz_zajete():
 def handle_connect():
     # Wyślij aktualną listę zajętych przy połączeniu
     emit('zajete_krzesla', zajete_krzesla)
-
+init_db()
 if __name__ == '__main__':
     init_db()
 
     import os
 
-    # Jeśli Render ustawi PORT → działamy w trybie produkcyjnym
+    # Tryb Render (hosting)
     if "PORT" in os.environ:
         PORT = int(os.environ["PORT"])
         print("Running on Render, port:", PORT)
@@ -1795,8 +1784,8 @@ if __name__ == '__main__':
         # Render NIE MA przeglądarki → pomijamy webbrowser.open
         socketio.run(app, host='0.0.0.0', port=PORT, debug=False)
 
+    # Tryb lokalny (Twój komputer)
     else:
-        # Tryb lokalny – wszystko zostaje tak jak masz
         IP = get_ip()
         PORT = 5000
 
